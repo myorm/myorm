@@ -1,0 +1,76 @@
+{
+    "name": "mysql-contexts",
+    "version": "1.0.8",
+    "homepage": "http://pkgs.traviszuleger.com/docs/mysql-contexts/MySqlTableContext.html",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/traviszuleger/mysql-contexts"
+    },
+    "description": "Provides an easy way to interact with the mysql2 connector by creating Contexts connected to a table in your MySQL database. This also supports joining tables on each other to create read-only joined contexts.",
+    "main": "./dist/cjs/index.js",
+    "types": "./dist/cjs/types/index.d.ts",
+    "scripts": {
+        "document": "jsdoc ./lib/src/ -t ./node_modules/docdash -c ./jsdoc-conf.json",
+        "clean": "del /S /Q .\\dist",
+        "build": "npm run clean && npm run build:esm && npm run build:cjs",
+        "build:esm": "tsc -p ./configs/tsconfig.esm.json",
+        "build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
+        "test": "node ./lib/tests/test.js",
+        "prepack": "npm run build"
+    },
+    "keywords": [
+        "mysql",
+        "context",
+        "C#",
+        "table",
+        "query",
+        "queries",
+        "insert",
+        "update",
+        "listener",
+        "database",
+        "get",
+        "getAll",
+        "insertOne",
+        "insertMany",
+        "updateOne",
+        "updateMany",
+        "deleteOne",
+        "deleteMany",
+        "truncate",
+        "join",
+        "left join",
+        "right join",
+        "cross join",
+        "include",
+        "relationships",
+        "hasOne",
+        "hasMany"
+    ],
+    "author": "Travis Zuleger",
+    "license": "(MIT OR Apache-2.0)",
+    "type": "module",
+    "dependencies": {
+        "mysql2": "^3.0.1"
+    },
+    "devDependencies": {
+        "@types/node": "^18.11.18",
+        "docdash": "^2.0.1",
+        "typescript": "^4.9.4"
+    },
+    "files": [
+        "dist/**/*"
+    ],
+    "exports": {
+        ".": {
+            "import": {
+                "types": "./dist/esm/types/index.d.ts",
+                "default": "./dist/esm/index.js"
+            },
+            "require": {
+                "types": "./dist/cjs/types/index.d.ts",
+                "default": "./dist/cjs/index.js"
+            }
+        }
+    }
+}
