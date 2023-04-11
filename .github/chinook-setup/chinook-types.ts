@@ -80,7 +80,6 @@ export interface Playlist {
 }
 
 export interface PlaylistTrack {
-    PlaylistTrackId: number;
     PlaylistId: number;
     TrackId: number;
     // included

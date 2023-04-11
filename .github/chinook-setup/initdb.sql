@@ -1,5 +1,5 @@
-CREATE DATABASE chinook;
-USE chinook;
+CREATE DATABASE digital_media_store;
+USE digital_media_store;
 
 /*******************************************************************************
    Chinook Database - Version 1.4
