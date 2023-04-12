@@ -102,6 +102,7 @@ export interface Track {
     Artist?: Artist;
     Genre?: Genre;
     MediaType?: MediaType;
+    PlaylistTrack?: PlaylistTrack;
 }
 
 export interface TestTable {
