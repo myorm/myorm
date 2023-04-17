@@ -1,22 +1,17 @@
 {
     "name": "@myorm/mysql",
-    "version": "0.0.1",
+    "version": "0.0.5",
     "homepage": "https://github.com/traviszuleger/myorm",
     "repository": {
         "type": "git",
         "url": "https://github.com/traviszuleger/myorm"
     },
     "description": "Provides an easy way to interact with the mysql2 connector by creating Contexts connected to a table in your MySQL database with only the need of defining your tables as TypeScript types.",
-    "main": "./dist/cjs/index.js",
-    "types": "./dist/cjs/types/index.d.ts",
+    "main": "./index.js",
+    "types": "./index.js",
     "scripts": {
         "document": "jsdoc ./lib/src/ -t ./node_modules/docdash -c ./jsdoc-conf.json",
-        "clean": "del /S /Q .\\dist",
-        "build": "npm run clean && npm run build:esm && npm run build:cjs",
-        "build:esm": "tsc -p ./configs/tsconfig.esm.json",
-        "build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
-        "test": "node ./lib/tests/test.js",
-        "prepack": "npm run build"
+        "test": "node ./lib/tests/test.js"
     },
     "keywords": [
         "mysql",
@@ -57,17 +52,17 @@
         "typescript": "^4.9.4"
     },
     "files": [
-        "dist/**/*"
+        "lib/src/**/*"
     ],
     "exports": {
         ".": {
             "import": {
-                "types": "./dist/esm/types/index.d.ts",
-                "default": "./dist/esm/index.js"
+                "types": "./index.js",
+                "default": "./index.js"
             },
             "require": {
-                "types": "./dist/cjs/types/index.d.ts",
-                "default": "./dist/cjs/index.js"
+                "types": "./index.js",
+                "default": "./index.js"
             }
         }
     }

@@ -1,6 +1,6 @@
 {
     "name": "@myorm/mysql",
-    "version": "0.0.2",
+    "version": "0.0.12",
     "homepage": "https://github.com/traviszuleger/myorm",
     "repository": {
         "type": "git",
@@ -11,7 +11,12 @@
     "types": "./dist/cjs/types/index.d.ts",
     "scripts": {
         "document": "jsdoc ./lib/src/ -t ./node_modules/docdash -c ./jsdoc-conf.json",
-        "test": "node ./lib/tests/test.js"
+        "clean": "del /S /Q .\\dist",
+        "build": "npm run clean && npm run build:esm && npm run build:cjs",
+        "build:esm": "tsc -p ./configs/tsconfig.esm.json",
+        "build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
+        "test": "node ./lib/tests/test.js",
+        "prepack": "npm run build"
     },
     "keywords": [
         "mysql",
@@ -52,17 +57,17 @@
         "typescript": "^4.9.4"
     },
     "files": [
-        "lib/src/**/*"
+        "dist/**/*"
     ],
     "exports": {
         ".": {
             "import": {
-                "types": "./index.js",
-                "default": "./index.js"
+                "types": "./dist/esm/types/index.d.ts",
+                "default": "./dist/esm/index.js"
             },
             "require": {
-                "types": "./index.js",
-                "default": "./index.js"
+                "types": "./dist/cjs/types/index.d.ts",
+                "default": "./dist/cjs/index.js"
             }
         }
     }
