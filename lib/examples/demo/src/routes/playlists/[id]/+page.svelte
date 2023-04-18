@@ -1,9 +1,6 @@
 <script>
     export let data;
 
-    function sortBy(key) {
-
-    }
 </script>
 
 <div class="container">
@@ -13,12 +10,12 @@
     <br>Tracks
     <table class="table table-hover table-striped">
         <thead>
-            <th on:click={() => sortBy("TrackId")}>Id</th>
-            <th on:click={() => sortBy("Name")}>Name</th>
-            <th on:click={() => sortBy("Composer")}>Composer</th>
-            <th on:click={() => sortBy("Milliseconds")}>Duration</th>
-            <th on:click={() => sortBy("Bytes")}>Bytes</th>
-            <th on:click={() => sortBy("Genre")}>Genre</th>
+            <th>Id</th>
+            <th>Name</th>
+            <th>Composer</th>
+            <th>Duration</th>
+            <th>Bytes</th>
+            <th>Genre</th>
         </thead>
         <tbody>
             {#each data.playlist.PlaylistTracks as pTrack}
