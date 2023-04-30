@@ -1,6 +1,6 @@
 {
     "name": "@myorm/mysql",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "homepage": "https://github.com/traviszuleger/myorm",
     "repository": {
         "type": "git",
@@ -16,6 +16,7 @@
         "build:esm": "tsc -p ./configs/tsconfig.esm.json",
         "build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
         "test": "node ./lib/tests/test.js",
+        "ctest": "node ./lib/tests/test.js -c",
         "prepack": "npm run build"
     },
     "keywords": [

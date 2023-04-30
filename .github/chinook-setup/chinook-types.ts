@@ -93,7 +93,7 @@ export interface Track {
     AlbumId: number;
     MediaTypeId: number;
     GenreId: number;
-    Composer: string;
+    Composer?: string;
     Milliseconds: number;
     Bytes: number;
     UnitPrice: number;
@@ -106,7 +106,7 @@ export interface Track {
 }
 
 export interface TestTable {
-    StringCol?: string;
+    StringCol: string;
     NumberCol?: number;
     BoolCol?: boolean;
     DateCol?: Date;
