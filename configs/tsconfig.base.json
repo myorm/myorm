@@ -7,14 +7,14 @@
         "checkJs": true,
         "allowJs": true,
         "declaration": true,
-        "declarationMap": true,
         "allowSyntheticDefaultImports": true,
-        "types": ["node"]
+        "types": ["node"],
+        "sourceMap": true
     },
     "files": [
-        "../lib/src/index.js",
-        "../lib/src/contexts.js",
-        "../lib/src/builders.js",
-        "../lib/src/toolbelt.js",
-    ]
+        "../lib/src/types.js",
+		"../lib/src/exceptions.js",
+		"../lib/src/contexts.js",
+		"../lib/src/where-builder.js"
+	]
 }

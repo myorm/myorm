@@ -4,3 +4,4 @@ node_modules
 /out
 /out/**/*
 package-lock.json
+/lib/tests/bb.ts
