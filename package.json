@@ -1,6 +1,6 @@
 {
 	"name": "@myorm/mysql",
-	"version": "0.2.17",
+	"version": "0.2.19",
 	"homepage": "https://github.com/traviszuleger/myorm",
 	"repository": {
 		"type": "git",
