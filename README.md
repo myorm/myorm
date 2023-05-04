@@ -1,7 +1,7 @@
-# mysql-contexts
+# myorm
 
-mysql-contexts provides a strongly-typed, easy way to interact with your MySQL database by interfacing and building commands for a single table through the mysql2 connector.
+`MyORM` is an open-source type-safe ORM model intended to be used in a similar fashion to Microsoft's Entity Framework Core. 
 
 # Documentation
 
-Read more documentation [here](https://github.com/traviszuleger/mysql-contexts)
+Read more documentation [here](https://github.com/myorm/myorm)

@@ -1,10 +1,10 @@
 {
 	"name": "@myorm/mysql",
-	"version": "0.2.20",
-	"homepage": "https://github.com/traviszuleger/myorm",
+	"version": "0.3.1",
+	"homepage": "https://github.com/myorm/myorm",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/traviszuleger/myorm"
+		"url": "https://github.com/myorm/myorm"
 	},
 	"description": "Provides an easy way to interact with the mysql2 connector by creating Contexts connected to a table in your MySQL database with only the need of defining your tables as TypeScript types.",
 	"main": "./dist/cjs/contexts.js",
