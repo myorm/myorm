@@ -1937,10 +1937,10 @@ const ps = await playlistCtx.include(m => m.PlaylistTracks)
 This will generate the following SQL (this is sanitized when it is actually sent):
 
 ```sql
-SELECT `Playlist`.`PlaylistId` AS `id`
-                ,`Playlist`.`Name` AS `name`
-                ,`PlaylistTrack`.`PlaylistId` AS `pId`
-                ,`PlaylistTrack`.`TrackId` AS `tId`
+SELECT `Playlist`.`PlaylistId` AS `PlaylistId`
+                ,`Playlist`.`Name` AS `Name`
+                ,`PlaylistTrack`.`PlaylistId` AS `PlaylistTracks_PlaylistId`
+                ,`PlaylistTrack`.`TrackId` AS `PlaylistTracks_TrackId`
         FROM (SELECT * FROM `Playlist`
         LIMIT 5 ) AS `Playlist`
                 LEFT JOIN `PlaylistTrack` ON `Playlist`.`PlaylistId`=`PlaylistTrack`.`PlaylistId`
