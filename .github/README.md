@@ -1926,11 +1926,10 @@ const ps = await playlistCtx.include(m => m.PlaylistTracks)
         .alias(m => ({
             id: m.PlaylistId,
             name: m.Name,
-            // notice that the object is wrapped with an Array.
-            playlistTracks: [{
-                pId: m.PlaylistTracks.PlaylistId,
-                tId: m.PlaylistTracks.TrackId
-            }]
+            playlistTracks: m.PlaylistTracks.map(pt => ({
+                pId: pt.PlaylistId,
+                tId: pt.TrackId
+            }))
         }))
         .select();
 ```
