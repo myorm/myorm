@@ -1690,15 +1690,20 @@ const ts = await trackCtx.include(m => m.Artist)
 This will generate the following SQL (this is sanitized when it is actually sent):
 
 ```sql
-SELECT `Track`.`TrackId` AS `id`
-                ,`Track`.`Name` AS `name`
-                ,`Track`.`UnitPrice` AS `$`
-                ,`Artist`.`ArtistId` AS `artistId`
-                ,`Artist`.`Name` AS `artistName`
-        FROM `Track`
-                LEFT JOIN `Album` ON `Track`.`AlbumId`=`Album`.`AlbumId`
-                LEFT JOIN `Artist` ON `Track`.`Composer`=`Artist`.`Name`
-        LIMIT 5
+SELECT `Track`.`TrackId` AS `TrackId`
+        ,`Track`.`Name` AS `Name`
+        ,`Track`.`AlbumId` AS `AlbumId`
+        ,`Track`.`MediaTypeId` AS `MediaTypeId`
+        ,`Track`.`GenreId` AS `GenreId`
+        ,`Track`.`Composer` AS `Composer`
+        ,`Track`.`Milliseconds` AS `Milliseconds`
+        ,`Track`.`Bytes` AS `Bytes`
+        ,`Track`.`UnitPrice` AS `UnitPrice`
+        ,`Artist`.`ArtistId` AS `Artist_ArtistId`
+        ,`Artist`.`Name` AS `Artist_Name`
+    FROM `Track`
+        LEFT JOIN `Artist` ON `Track`.`Composer`=`Artist`.`Name`
+    LIMIT 5
 ```
 
 `ts` will be the following result:
@@ -1743,12 +1748,12 @@ Example of including `digital_media_store.Artist` and `digital_media_store.Album
 ```ts
 const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
 const trackCtx = new MyORMContext<Track>(pool, "Track");
-trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"));
+trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"))
     .hasOne(m => m.Album.withKeys("AlbumId", "AlbumId"));
 
 const ts = await trackCtx
     .include(m => m.Artist)
-    .include(m.Album)
+    .include(m => m.Album)
     .alias(m => ({
         id: m.TrackId,
         name: m.Name,
@@ -1769,17 +1774,24 @@ const ts = await trackCtx
 This will generate the following SQL (this is sanitized when it is actually sent):
 
 ```sql
-SELECT `Track`.`TrackId` AS `id`
-                ,`Track`.`Name` AS `name`
-                ,`Track`.`UnitPrice` AS `$`
-                ,`Artist`.`ArtistId` AS `artistId`
-                ,`Artist`.`Name` AS `artistName`
-                ,`Album`.`AlbumId` AS `albumId`
-                ,`Album`.`Title` AS `title`
-        FROM `Track`
-                LEFT JOIN `Artist` ON `Track`.`Composer`=`Artist`.`Name`
-                LEFT JOIN `Album` ON `Track`.`AlbumId`=`Album`.`AlbumId`
-        LIMIT 5
+SELECT `Track`.`TrackId` AS `TrackId`
+        ,`Track`.`Name` AS `Name`
+        ,`Track`.`AlbumId` AS `AlbumId`
+        ,`Track`.`MediaTypeId` AS `MediaTypeId`
+        ,`Track`.`GenreId` AS `GenreId`
+        ,`Track`.`Composer` AS `Composer`
+        ,`Track`.`Milliseconds` AS `Milliseconds`
+        ,`Track`.`Bytes` AS `Bytes`
+        ,`Track`.`UnitPrice` AS `UnitPrice`
+        ,`Album`.`AlbumId` AS `Album_AlbumId`
+        ,`Album`.`Title` AS `Album_Title`
+        ,`Album`.`ArtistId` AS `Album_ArtistId`
+        ,`Artist`.`ArtistId` AS `Artist_ArtistId`
+        ,`Artist`.`Name` AS `Artist_Name`
+    FROM `Track`
+        LEFT JOIN `Album` ON `Track`.`AlbumId`=`Album`.`AlbumId`
+        LEFT JOIN `Artist` ON `Track`.`Composer`=`Artist`.`Name`
+    LIMIT 5
 ```
 
 `ts` will be the following result:
@@ -1829,7 +1841,7 @@ Example like above, but instead using `.groupBy()` in place of `.alias()`:
 ```ts
 const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
 const trackCtx = new MyORMContext<Track>(pool, "Track");
-trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"));
+trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"))
     .hasOne(m => m.Album.withKeys("AlbumId", "AlbumId"));
 
 const ts = await trackCtx
@@ -1867,11 +1879,11 @@ SELECT `Track`.`TrackId` AS `TrackId`
         ,`Album`.`AlbumId` AS `Album_AlbumId`
         ,`Album`.`Title` AS `Album_Title`
         ,`Album`.`ArtistId` AS `Album_ArtistId`
-        ,`Artist`.`ArtistId` AS `Album_Artist_ArtistId`
-        ,`Artist`.`Name` AS `Album_Artist_Name`
+        ,`Artist`.`ArtistId` AS `Artist_ArtistId`
+        ,`Artist`.`Name` AS `Artist_Name`
     FROM `Track`
         LEFT JOIN `Album` ON `Track`.`AlbumId`=`Album`.`AlbumId`
-        LEFT JOIN `Artist` ON `Album`.`ArtistId`=`Artist`.`ArtistId`
+        LEFT JOIN `Artist` ON `Track`.`Composer`=`Artist`.`Name`
     LIMIT 5
 ```
 
@@ -1926,16 +1938,16 @@ const pool = MyORMContext.createPool({ database: "digital_media_store", host: "l
 const trackCtx = new MyORMContext<Playlist>(pool, "Playlist");
 playlistCtx.hasMany(m => m.PlaylistTracks.fromTable("PlaylistTrack").withKeys("PlaylistId", "PlaylistId"));
 const ps = await playlistCtx.include(m => m.PlaylistTracks)
-        .take(5) // For example purposes, we are limiting the query to 5 records
-        .alias(m => ({
-            id: m.PlaylistId,
-            name: m.Name,
-            playlistTracks: m.PlaylistTracks.map(pt => ({
-                pId: pt.PlaylistId,
-                tId: pt.TrackId
-            }))
+    .take(5) // For example purposes, we are limiting the query to 5 records
+    .alias(m => ({
+        id: m.PlaylistId,
+        name: m.Name,
+        playlistTracks: m.PlaylistTracks.map(pt => ({
+            pId: pt.PlaylistId,
+            tId: pt.TrackId
         }))
-        .select();
+    }))
+    .select();
 ```
 
 This will generate the following SQL (this is sanitized when it is actually sent):
