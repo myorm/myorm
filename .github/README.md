@@ -1671,7 +1671,7 @@ Example of including `digital_media_store.Artist` in a query from `digital_media
 ```ts
 const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
 const trackCtx = new MyORMContext<Track>(pool, "Track");
-trackCtx.hasOne(m => m.Artist.with("Composer").to("Name"));
+trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"));
 
 const ts = await trackCtx.include(m => m.Artist)
     .take(5) // For example purposes, we are limiting the query to 5 records
@@ -1743,11 +1743,12 @@ Example of including `digital_media_store.Artist` and `digital_media_store.Album
 ```ts
 const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
 const trackCtx = new MyORMContext<Track>(pool, "Track");
-trackCtx.hasOne(m => m.Artist.with("Composer").to("Name"));
-trackCtx.hasOne(m => m.Album.with("AlbumId").to("AlbumId"));
+trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"));
+    .hasOne(m => m.Album.withKeys("AlbumId", "AlbumId"));
 
-const ts = await trackCtx.include(m => [m.Artist, m.Album])
-    .take(5) // For example purposes, we are limiting the query to 5 records
+const ts = await trackCtx
+    .include(m => m.Artist)
+    .include(m.Album)
     .alias(m => ({
         id: m.TrackId,
         name: m.Name,
@@ -1761,6 +1762,7 @@ const ts = await trackCtx.include(m => [m.Artist, m.Album])
             title: m.Album.Title
         }
     }))
+    .take(5) // For example purposes, we are limiting the query to 5 records
     .select();
 ```
 
@@ -1827,48 +1829,50 @@ Example like above, but instead using `.groupBy()` in place of `.alias()`:
 ```ts
 const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
 const trackCtx = new MyORMContext<Track>(pool, "Track");
-trackCtx.hasOne(m => m.Artist.with("Composer").to("Name"));
-trackCtx.hasOne(m => m.Album.with("AlbumId").to("AlbumId"));
+trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"));
+    .hasOne(m => m.Album.withKeys("AlbumId", "AlbumId"));
 
-const ts = await trackCtx.include(m => [m.Artist, m.Album])
-    .take(5) // For example purposes, we are limiting the query to 5 records
+const ts = await trackCtx
+    .include(m => m.Artist)
+    .include(m => m.Album)
     .alias(m => ({
         id: m.TrackId,
         name: m.Name,
         $: m.UnitPrice,
         artist: {
             artistId: m.Artist.ArtistId,
-            artistName: m.Artist.Name
+            artistName: m.Artist.Name,
         },
         album: {
             albumId: m.Album.AlbumId,
-            title: m.Album.Title
-        }
+            title: m.Album.Title,
+        },
     }))
+    .take(5) // For example purposes, we are limiting the query to 5 records
     .select();
 ```
 
 This will generate the following SQL (this is sanitized when it is actually sent):
 
 ```sql
-SELECT `Track`.`TrackId` AS `id`
-                ,`Track`.`Name` AS `name`
-                ,`Track`.`UnitPrice` AS `$`
-                ,`Artist`.`ArtistId` AS `artistId`
-                ,`Artist`.`Name` AS `artistName`
-                ,`Album`.`AlbumId` AS `albumId`
-                ,`Album`.`Title` AS `title`
-        FROM `Track`
-                LEFT JOIN `Artist` ON `Track`.`Composer`=`Artist`.`Name`
-                LEFT JOIN `Album` ON `Track`.`AlbumId`=`Album`.`AlbumId`
-        GROUP BY `Track`.`TrackId`
-                ,`Track`.`Name`
-                ,`Track`.`UnitPrice`
-                ,`Artist`.`ArtistId`
-                ,`Artist`.`Name`
-                ,`Album`.`AlbumId`
-                ,`Album`.`Title`
-        LIMIT 5
+SELECT `Track`.`TrackId` AS `TrackId`
+        ,`Track`.`Name` AS `Name`
+        ,`Track`.`AlbumId` AS `AlbumId`
+        ,`Track`.`MediaTypeId` AS `MediaTypeId`
+        ,`Track`.`GenreId` AS `GenreId`
+        ,`Track`.`Composer` AS `Composer`
+        ,`Track`.`Milliseconds` AS `Milliseconds`
+        ,`Track`.`Bytes` AS `Bytes`
+        ,`Track`.`UnitPrice` AS `UnitPrice`
+        ,`Album`.`AlbumId` AS `Album_AlbumId`
+        ,`Album`.`Title` AS `Album_Title`
+        ,`Album`.`ArtistId` AS `Album_ArtistId`
+        ,`Artist`.`ArtistId` AS `Album_Artist_ArtistId`
+        ,`Artist`.`Name` AS `Album_Artist_Name`
+    FROM `Track`
+        LEFT JOIN `Album` ON `Track`.`AlbumId`=`Album`.`AlbumId`
+        LEFT JOIN `Artist` ON `Album`.`ArtistId`=`Artist`.`ArtistId`
+    LIMIT 5
 ```
 
 `ts` will be the following result:
@@ -1920,7 +1924,7 @@ Example of including `digital_media_store.PlaylistTrack` in a query from `digita
 ```ts
 const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
 const trackCtx = new MyORMContext<Playlist>(pool, "Playlist");
-playlistCtx.hasMany(m => m.PlaylistTracks.from("PlaylistTrack").with("PlaylistId").to("PlaylistId"));
+playlistCtx.hasMany(m => m.PlaylistTracks.fromTable("PlaylistTrack").withKeys("PlaylistId", "PlaylistId"));
 const ps = await playlistCtx.include(m => m.PlaylistTracks)
         .take(5) // For example purposes, we are limiting the query to 5 records
         .alias(m => ({
