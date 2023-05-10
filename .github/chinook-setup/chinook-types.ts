@@ -9,6 +9,8 @@ export interface Album {
 export interface Artist {
     ArtistId: number;
     Name?: string;
+    // included
+    Album?: Album;
 };
 
 export interface Customer {
@@ -76,15 +78,15 @@ export interface Playlist {
     PlaylistId: number;
     Name: string;
     // included
-    PlaylistTracks: PlaylistTrack[];
+    PlaylistTracks?: PlaylistTrack[];
 }
 
 export interface PlaylistTrack {
     PlaylistId: number;
     TrackId: number;
     // included
-    Track: Track;
-    Playlist: Playlist;
+    Track?: Track;
+    Playlist?: Playlist;
 }
 
 export interface Track {
