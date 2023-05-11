@@ -16,6 +16,7 @@
         "../lib/src/exceptions.js",
 		"../lib/src/contexts.js",
         "../lib/src/types.js",
-		"../lib/src/where-builder.js"
+        "../lib/src/util.js",
+        "../lib/src/where-builder.js"
 	]
 }
