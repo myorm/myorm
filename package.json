@@ -43,9 +43,6 @@
 	"author": "Travis Zuleger",
 	"license": "(MIT OR Apache-2.0)",
 	"type": "module",
-	"dependencies": {
-		"mysql2": "^3.0.1"
-	},
 	"devDependencies": {
 		"@types/node": "^18.11.18",
 		"docdash": "^2.0.1",

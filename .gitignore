@@ -6,3 +6,4 @@ node_modules
 package-lock.json
 /lib/tests/bb.ts
 .env
+output.txt
