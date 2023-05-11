@@ -733,100 +733,9 @@ SELECT `Track`.`TrackId` AS `TrackId`
 
 ## .groupBy()
 
-__NOTE: The `.groupBy()` function aliases for you, making it so `.alias()` will not work, and will instead throw a `MyORMSyntaxError` specifying that you cannot use both `.alias()` and `.groupBy()` in one context.__
-
-The `.groupBy()` function is a relatively simple function, where you must provide an object where the keys you specify are aliases of the columns (by property reference) you want to alias from.
-
-The `.groupBy()` function takes in a callback function, where there is one argument, `model`, which is a type of the original model that you provided during construction. This `model` object works on a proxy, where an intercept will take the property you reference and return the string variant of that property. This is intended to be used in the object.
-
-Unlike the `.where()` function, the `.sortBy()` function will override any pre-existing `.sortBy()` calls.
-
-It is important to note, just like `.alias()`, you can only alias your properties of the immediate table on root keys of the object you return. You can only alias properties on nested objects of your returned object when the column being aliased is from an included table, (see more on included tables [here](#including)) 
-
-Unlike `.alias()`, `.groupBy()` has access to SQL aggregate functions, these functions are as follows:
-  - `.count()`: Gets the total count for the grouped record.
-  - `.avg(modelCallback: (m: TTableModel) => string)`: Gets the average of the specified column for the grouped record.
-  - `.min(modelCallback: (m: TTableModel) => string)`: Gets the minimum value of the specified column for the grouped record.
-  - `.max(modelCallback: (m: TTableModel) => string)`: Gets the maximum value of the specified column for the grouped record.
-  - `.sum(modelCallback: (m: TTableModel) => string)`: Gets the sum of all values for the specified column of the grouped record.
-  - Table `TTableModel`: TTableModel type from `MyORMContext<TTableModel>` that represents the Table's columns.
-
-You can get access to these aggregate functions with a second parameter in the `modelCallback` argument in `.groupBy()`, `aggregates`.
+__NOTE: GROUP BY documentation is still under construction...__
 
 ### .groupBy() examples
-
-Example of querying all records from `digital_media_store.Track` grouped by `Composer`:
-
-```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
-const tracks = await trackCtx
-    .groupBy(m => ({
-        composer: m.Composer
-    }))
-    .select();
-```
-
-This will generate the following SQL (this is sanitized when it is actually sent):
-
-```sql
-SELECT `Track`.`Composer` AS `composer`
-    FROM `Track`
-    GROUP BY `Track`.`Composer`
-```
-
-Example of querying all records from `digital_media_store.Track` grouped by `Composer`, where also getting the aggregate SUM of `Bytes`.
-
-```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
-const tracks = await trackCtx
-    .groupBy((m,a) => ({
-        composer: m.Composer,
-        sumBytes: a.sum(m => m.Bytes)
-    }))
-    .select();
-```
-
-This will generate the following SQL (this is sanitized when it is actually sent):
-
-```sql
-SELECT `Track`.`Composer` AS `composer`
-        ,SUM(Bytes) AS sumBytes
-    FROM `Track`
-    GROUP BY `Track`.`Composer`
-```
-
-Example of querying all records from `digital_media_store.Track` grouped by `Composer` and `AlbumId`, where also getting the aggregate SUM, MIN, MAX, and AVG of `Bytes`.
-
-```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
-const tracks = await trackCtx
-    .groupBy((m,a) => ({
-        composer: m.Composer,
-        albumId: m.AlbumId,
-        avgBytes: a.avg(m => m.Bytes),
-        minBytes: a.min(m => m.Bytes),
-        maxBytes: a.max(m => m.Bytes),
-        sumBytes: a.sum(m => m.Bytes),
-    }))
-    .select();
-```
-
-This will generate the following SQL (this is sanitized when it is actually sent):
-
-```sql
-SELECT `Track`.`Composer` AS `composer`
-        ,`Track`.`AlbumId` AS `albumId`
-        ,AVG(Bytes) AS avgBytes
-        ,MIN(Bytes) AS minBytes
-        ,MAX(Bytes) AS maxBytes
-        ,SUM(Bytes) AS sumBytes
-    FROM `Track`
-    GROUP BY `Track`.`Composer`
-        ,`Track`.`AlbumId`
-```
 
 ## .take() and .skip()
 
@@ -1762,7 +1671,7 @@ Example of including `digital_media_store.Artist` in a query from `digital_media
 ```ts
 const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
 const trackCtx = new MyORMContext<Track>(pool, "Track");
-trackCtx.hasOne(m => m.Artist.with("Composer").to("Name"));
+trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"));
 
 const ts = await trackCtx.include(m => m.Artist)
     .take(5) // For example purposes, we are limiting the query to 5 records
@@ -1781,15 +1690,20 @@ const ts = await trackCtx.include(m => m.Artist)
 This will generate the following SQL (this is sanitized when it is actually sent):
 
 ```sql
-SELECT `Track`.`TrackId` AS `id`
-                ,`Track`.`Name` AS `name`
-                ,`Track`.`UnitPrice` AS `$`
-                ,`Artist`.`ArtistId` AS `artistId`
-                ,`Artist`.`Name` AS `artistName`
-        FROM `Track`
-                LEFT JOIN `Album` ON `Track`.`AlbumId`=`Album`.`AlbumId`
-                LEFT JOIN `Artist` ON `Track`.`Composer`=`Artist`.`Name`
-        LIMIT 5
+SELECT `Track`.`TrackId` AS `TrackId`
+        ,`Track`.`Name` AS `Name`
+        ,`Track`.`AlbumId` AS `AlbumId`
+        ,`Track`.`MediaTypeId` AS `MediaTypeId`
+        ,`Track`.`GenreId` AS `GenreId`
+        ,`Track`.`Composer` AS `Composer`
+        ,`Track`.`Milliseconds` AS `Milliseconds`
+        ,`Track`.`Bytes` AS `Bytes`
+        ,`Track`.`UnitPrice` AS `UnitPrice`
+        ,`Artist`.`ArtistId` AS `Artist_ArtistId`
+        ,`Artist`.`Name` AS `Artist_Name`
+    FROM `Track`
+        LEFT JOIN `Artist` ON `Track`.`Composer`=`Artist`.`Name`
+    LIMIT 5
 ```
 
 `ts` will be the following result:
@@ -1834,11 +1748,12 @@ Example of including `digital_media_store.Artist` and `digital_media_store.Album
 ```ts
 const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
 const trackCtx = new MyORMContext<Track>(pool, "Track");
-trackCtx.hasOne(m => m.Artist.with("Composer").to("Name"));
-trackCtx.hasOne(m => m.Album.with("AlbumId").to("AlbumId"));
+trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"))
+    .hasOne(m => m.Album.withKeys("AlbumId", "AlbumId"));
 
-const ts = await trackCtx.include(m => [m.Artist, m.Album])
-    .take(5) // For example purposes, we are limiting the query to 5 records
+const ts = await trackCtx
+    .include(m => m.Artist)
+    .include(m => m.Album)
     .alias(m => ({
         id: m.TrackId,
         name: m.Name,
@@ -1852,23 +1767,31 @@ const ts = await trackCtx.include(m => [m.Artist, m.Album])
             title: m.Album.Title
         }
     }))
+    .take(5) // For example purposes, we are limiting the query to 5 records
     .select();
 ```
 
 This will generate the following SQL (this is sanitized when it is actually sent):
 
 ```sql
-SELECT `Track`.`TrackId` AS `id`
-                ,`Track`.`Name` AS `name`
-                ,`Track`.`UnitPrice` AS `$`
-                ,`Artist`.`ArtistId` AS `artistId`
-                ,`Artist`.`Name` AS `artistName`
-                ,`Album`.`AlbumId` AS `albumId`
-                ,`Album`.`Title` AS `title`
-        FROM `Track`
-                LEFT JOIN `Artist` ON `Track`.`Composer`=`Artist`.`Name`
-                LEFT JOIN `Album` ON `Track`.`AlbumId`=`Album`.`AlbumId`
-        LIMIT 5
+SELECT `Track`.`TrackId` AS `TrackId`
+        ,`Track`.`Name` AS `Name`
+        ,`Track`.`AlbumId` AS `AlbumId`
+        ,`Track`.`MediaTypeId` AS `MediaTypeId`
+        ,`Track`.`GenreId` AS `GenreId`
+        ,`Track`.`Composer` AS `Composer`
+        ,`Track`.`Milliseconds` AS `Milliseconds`
+        ,`Track`.`Bytes` AS `Bytes`
+        ,`Track`.`UnitPrice` AS `UnitPrice`
+        ,`Album`.`AlbumId` AS `Album_AlbumId`
+        ,`Album`.`Title` AS `Album_Title`
+        ,`Album`.`ArtistId` AS `Album_ArtistId`
+        ,`Artist`.`ArtistId` AS `Artist_ArtistId`
+        ,`Artist`.`Name` AS `Artist_Name`
+    FROM `Track`
+        LEFT JOIN `Album` ON `Track`.`AlbumId`=`Album`.`AlbumId`
+        LEFT JOIN `Artist` ON `Track`.`Composer`=`Artist`.`Name`
+    LIMIT 5
 ```
 
 `ts` will be the following result:
@@ -1918,48 +1841,50 @@ Example like above, but instead using `.groupBy()` in place of `.alias()`:
 ```ts
 const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
 const trackCtx = new MyORMContext<Track>(pool, "Track");
-trackCtx.hasOne(m => m.Artist.with("Composer").to("Name"));
-trackCtx.hasOne(m => m.Album.with("AlbumId").to("AlbumId"));
+trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"))
+    .hasOne(m => m.Album.withKeys("AlbumId", "AlbumId"));
 
-const ts = await trackCtx.include(m => [m.Artist, m.Album])
-    .take(5) // For example purposes, we are limiting the query to 5 records
+const ts = await trackCtx
+    .include(m => m.Artist)
+    .include(m => m.Album)
     .alias(m => ({
         id: m.TrackId,
         name: m.Name,
         $: m.UnitPrice,
         artist: {
             artistId: m.Artist.ArtistId,
-            artistName: m.Artist.Name
+            artistName: m.Artist.Name,
         },
         album: {
             albumId: m.Album.AlbumId,
-            title: m.Album.Title
-        }
+            title: m.Album.Title,
+        },
     }))
+    .take(5) // For example purposes, we are limiting the query to 5 records
     .select();
 ```
 
 This will generate the following SQL (this is sanitized when it is actually sent):
 
 ```sql
-SELECT `Track`.`TrackId` AS `id`
-                ,`Track`.`Name` AS `name`
-                ,`Track`.`UnitPrice` AS `$`
-                ,`Artist`.`ArtistId` AS `artistId`
-                ,`Artist`.`Name` AS `artistName`
-                ,`Album`.`AlbumId` AS `albumId`
-                ,`Album`.`Title` AS `title`
-        FROM `Track`
-                LEFT JOIN `Artist` ON `Track`.`Composer`=`Artist`.`Name`
-                LEFT JOIN `Album` ON `Track`.`AlbumId`=`Album`.`AlbumId`
-        GROUP BY `Track`.`TrackId`
-                ,`Track`.`Name`
-                ,`Track`.`UnitPrice`
-                ,`Artist`.`ArtistId`
-                ,`Artist`.`Name`
-                ,`Album`.`AlbumId`
-                ,`Album`.`Title`
-        LIMIT 5
+SELECT `Track`.`TrackId` AS `TrackId`
+        ,`Track`.`Name` AS `Name`
+        ,`Track`.`AlbumId` AS `AlbumId`
+        ,`Track`.`MediaTypeId` AS `MediaTypeId`
+        ,`Track`.`GenreId` AS `GenreId`
+        ,`Track`.`Composer` AS `Composer`
+        ,`Track`.`Milliseconds` AS `Milliseconds`
+        ,`Track`.`Bytes` AS `Bytes`
+        ,`Track`.`UnitPrice` AS `UnitPrice`
+        ,`Album`.`AlbumId` AS `Album_AlbumId`
+        ,`Album`.`Title` AS `Album_Title`
+        ,`Album`.`ArtistId` AS `Album_ArtistId`
+        ,`Artist`.`ArtistId` AS `Artist_ArtistId`
+        ,`Artist`.`Name` AS `Artist_Name`
+    FROM `Track`
+        LEFT JOIN `Album` ON `Track`.`AlbumId`=`Album`.`AlbumId`
+        LEFT JOIN `Artist` ON `Track`.`Composer`=`Artist`.`Name`
+    LIMIT 5
 ```
 
 `ts` will be the following result:
@@ -2011,28 +1936,27 @@ Example of including `digital_media_store.PlaylistTrack` in a query from `digita
 ```ts
 const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
 const trackCtx = new MyORMContext<Playlist>(pool, "Playlist");
-playlistCtx.hasMany(m => m.PlaylistTracks.from("PlaylistTrack").with("PlaylistId").to("PlaylistId"));
+playlistCtx.hasMany(m => m.PlaylistTracks.fromTable("PlaylistTrack").withKeys("PlaylistId", "PlaylistId"));
 const ps = await playlistCtx.include(m => m.PlaylistTracks)
-        .take(5) // For example purposes, we are limiting the query to 5 records
-        .alias(m => ({
-            id: m.PlaylistId,
-            name: m.Name,
-            // notice that the object is wrapped with an Array.
-            playlistTracks: [{
-                pId: m.PlaylistTracks.PlaylistId,
-                tId: m.PlaylistTracks.TrackId
-            }]
+    .take(5) // For example purposes, we are limiting the query to 5 records
+    .alias(m => ({
+        id: m.PlaylistId,
+        name: m.Name,
+        playlistTracks: m.PlaylistTracks.map(pt => ({
+            pId: pt.PlaylistId,
+            tId: pt.TrackId
         }))
-        .select();
+    }))
+    .select();
 ```
 
 This will generate the following SQL (this is sanitized when it is actually sent):
 
 ```sql
-SELECT `Playlist`.`PlaylistId` AS `id`
-                ,`Playlist`.`Name` AS `name`
-                ,`PlaylistTrack`.`PlaylistId` AS `pId`
-                ,`PlaylistTrack`.`TrackId` AS `tId`
+SELECT `Playlist`.`PlaylistId` AS `PlaylistId`
+                ,`Playlist`.`Name` AS `Name`
+                ,`PlaylistTrack`.`PlaylistId` AS `PlaylistTracks_PlaylistId`
+                ,`PlaylistTrack`.`TrackId` AS `PlaylistTracks_TrackId`
         FROM (SELECT * FROM `Playlist`
         LIMIT 5 ) AS `Playlist`
                 LEFT JOIN `PlaylistTrack` ON `Playlist`.`PlaylistId`=`PlaylistTrack`.`PlaylistId`
