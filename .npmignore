@@ -1,11 +1,9 @@
 node_modules
-/lib/examples/
-/lib/examples/*
 /lib/scripts/
 /lib/scripts/*
-/lib/src/out
-/lib/src/out/*
 /lib/tests
 /lib/tests/*
 package-lock.json
 jsdoc-conf.json
+.env
+output.txt
