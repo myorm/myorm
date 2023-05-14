@@ -86,7 +86,6 @@ e.g.,
 const myLambda = () => {
 
 }
-
 ```
 
 All lambda functions with one parameter should __NOT__ be wrapped with a parentheses.
