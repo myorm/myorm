@@ -1,6 +1,27 @@
 CREATE DATABASE digital_media_store;
 USE digital_media_store;
 
+CREATE TABLE `TestTable` (
+  `StringCol` varchar(45) DEFAULT NULL,
+  `NumberCol` int DEFAULT NULL,
+  `BoolCol` tinyint DEFAULT NULL,
+  `DateCol` date DEFAULT NULL,
+  `DateTimeCol` datetime DEFAULT NULL,
+  `BigIntCol` bigint DEFAULT NULL
+);
+
+CREATE TABLE `TestTableIdentity` (
+  `Id` int NOT NULL AUTO_INCREMENT,
+  `StringCol` varchar(45) DEFAULT NULL,
+  `NumberCol` int DEFAULT NULL,
+  `BoolCol` tinyint DEFAULT NULL,
+  `DateCol` date DEFAULT NULL,
+  `DateTimeCol` datetime DEFAULT NULL,
+  `BigIntCol` bigint DEFAULT NULL,
+  PRIMARY KEY (`Id`)
+);
+
+
 /*******************************************************************************
    Chinook Database - Version 1.4
    Script: Chinook_PostgreSql.sql
