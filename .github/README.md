@@ -1755,7 +1755,7 @@ Example for configuring a one-to-one relationship for `digital_media_store.Artis
 ```ts
 const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
 const trackCtx = new MyORMContext<Track>(adapter(pool), "Track");
-trackCtx.hasOne(m => m.Artist.with("Composer").to("Name"));
+trackCtx.hasOne(m => m.Artist.withKeys("Composer","Name"));
 ```
 
 Example for configuring a one-to-many relationship for `digital_media_store.PlaylistTrack` on `digital_media_store.Playlist`.
@@ -1764,7 +1764,7 @@ Example for configuring a one-to-many relationship for `digital_media_store.Play
 const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
 const playlistCtx = new MyORMContext<Playlist>(adapter(pool), "Playlist");
 // since the property, "m.PlaylistTracks" is not the same as the table name, `PlaylistTrack`, we have to use `.from()` to properly set what it is. 
-playlistCtx.hasMany(m => m.PlaylistTracks.from("PlaylistTrack").with("PlaylistId").to("PlaylistId"));
+playlistCtx.hasMany(m => m.PlaylistTracks.from("PlaylistTrack").withKeys("PlaylistId","PlaylistId"));
 ```
 
 ## Including the tables (LEFT JOIN)
