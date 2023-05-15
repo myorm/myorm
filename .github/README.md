@@ -9,6 +9,11 @@ MyORM is a library dedicated for interacting with a MySQL database by building t
     - [Chinook Database](#digital_media_store-database)
     - [Tutorial: Setup Chinook Database](#tutorial-setup-chinook-database)
   - [Initializing](#initializing)
+    - [Adapters](#adapters)
+      - [MySQL](#mysql)
+      - [MSSQL](#mssql-microsoft-sql)
+      - [SQLite](#sqlite)
+      - [POSTgres](#postgres)
     - [Examples](#constructor-examples)
   - [Transaction Functions](#transaction-functions)
     - [Explicit Transaction Functions](#explicit-transaction-functions)
@@ -16,6 +21,7 @@ MyORM is a library dedicated for interacting with a MySQL database by building t
   - [Clause Functions](#clause-functions)
     - [WHERE](#where)
       - [WhereBuilder](#wherebuilder)
+      - [Negation](#where-negation)
       - [Chaining and Nesting](#where-chaining)
       - [Tips and Tricks](#where-tips-and-tricks)
       - [Examples](#where-examples)
@@ -44,7 +50,7 @@ MyORM is a library dedicated for interacting with a MySQL database by building t
   - [Including](#including)
     - [Configuring Relationships](#configuring-relationships)
     - [LEFT JOIN](#including-the-tables-left-join)
-  - [Programmatic Views](#programmatic-views)
+  - [Managing State (Programmatic Views)](#managing-state)
   - [Logging](#logging)
 
 # Overview
@@ -89,15 +95,11 @@ To start working with `MyORM`, you need to create a `MyORMContext` class object 
 The syntax for each constructor is as follows:
 
   - `new MyORMContext<TTableModel extends {[k: string]: any}>(configOrPool: Pool|PoolOptions, realTableName: string)`: Creates a new MyORMContext connected to the database specified under `Pool` or `PoolOptions` and the table specified by `realTableName`, where `TTableModel` is an exact representation of the table as it is defined in your database.
-    - `configOrPool: Pool`: MySQL2 pool the desired database is connected to.
-      - A pool can be created using `static function MyORMContext.createPool(config: PoolOptions)`, which then can be used in multiple `MyORMContext` class objects.
-    - `configOrPool: PoolOptions`: MySQL2 pool options the desired database is connected to. This pool will be connected on the fly and will only be used on that `MyORMContext`.
+    - `adapter: MyORMAdapter`: Some `MyORMAdapter` to connect with.
     - `realTableName: string`: The exact string that represents the table name as it appears in your database.
   - `new MyORMContext<TTableModel extends {[k: string]: any}>(configOrPool: Pool|PoolOptions, realTableName: string, options: MyORMContextOptions)`: Creates a new MyORMContext connected to the database specified under `Pool` or `PoolOptions` and the table specified by `realTableName`, where `TTableModel` is an exact representation of the table as it is defined in your database, including some extra options that define some behavior in the context.
     - `<TTableModel>`: Interface representing the table you want this context to work with. Your interface should perfectly represent the table's columns.
-    - `configOrPool: Pool`: MySQL2 pool the desired database is connected to.
-      - A pool can be created using the `static function MyORMContext.createPool(config: PoolOptions)`, which then can be used in multiple `MyORMContext` class objects.
-    - `configOrPool: PoolOptions`: MySQL2 pool options the desired database is connected to. This pool will be connected on the fly and will only be used on that `MyORMContext`.
+    - `adapter: MyORMAdapter`: Some `MyORMAdapter` to connect with.
     - `realTableName: string`: The exact string that represents the table name as it appears in your database.
     - `options: MyORMContextOptions`: Additional options to further configure your context.
       - `allowUpdateOnAll: boolean`: If true, will allow usage of the `.updateSelect()` function __without__ specifying a WHERE clause to update your entire table. (default: false)
@@ -106,12 +108,48 @@ The syntax for each constructor is as follows:
 For TypeScript to give you all of the correct information while building your commands, you must provide a generic type parameter for `TTableModel`. This type parameter should perfectly represent your table.  
 
 There are some exceptions to this rule:
-  - Property represents a primary key that is attributed as `AUTO_INCREMENT`, where you should specify it as an optional parameter with `?` appended to the name.
+  - Property represents a primary key that is a key where it automatically increments in the database, where you should specify it as an optional parameter with `?` appended to the name.
   - Property represents a foreign relationship to another table, where you should it as an optional parameter with `?` appended to the name.
 
 You do not have to use typescript, but it would make things more difficult. Just remember these two rules when not working with typescript:
   - [Clause functions](#clause-functions) will only work off the actual column names in the table being worked on.
   - [Transaction functions](#transaction-functions) can work on either the original column names, or the explicit aliased names given using `.alias()`.
+
+## Adapters
+
+`MyORM` was originally created with intention of only being used for `MySQL` databases, but has since been updated to support adapters for any database.  
+
+In order to use `MyORM`, you will need to use an adapter. Here is a list of some supported adapters for `MyORM`.
+
+### MySQL
+
+Connect `MyORM` to your MySQL database.  
+
+[MySQL Adapter](https://www.npmjs.com/package/@myorm/mysql-adapter)  
+
+### MSSQL (Microsoft SQL)
+
+__work in progress__
+
+Connect `MyORM` to your MSSQL database.  
+
+[MSSQL Adapter](https://www.npmjs.com/package/@myorm/mssql-adapter) 
+
+### SQLite
+
+__work in progress__
+
+Connect `MyORM` to a SQLite file database.  
+
+[SQLite Adapter](https://www.npmjs.com/package/@myorm/sqlite-adapter)  
+
+### POSTgres
+
+__work in progress__
+
+Connect `MyORM` to a POSTgres database.  
+
+[POSTgres Adapter](https://www.npmjs.com/package/@myorm/postgres-adapter)  
 
 ## Constructor examples
 
@@ -159,10 +197,12 @@ export interface Customer {
 };
 ```
 
-Create your context,
+Using the [MySQL adapter](https://www.npmjs.com/package/@myorm/mysql-adapter), create your context,
 
 ```ts
-const customerCtx = new MyORMContext<Customer>({ host: 'localhost', port: 3306, user: 'root', password: 'root', database: 'digital_store_media'}, "Customer");
+import { MyORMContext } from '@myorm/myorm';
+import { adapter, createMySql2Pool } from '@myorm/mysql-adapter';
+const customerCtx = new MyORMContext<Customer>(adapter({ host: 'localhost', port: 3306, user: 'root', password: 'root', database: 'digital_store_media'}), "Customer");
 ```
 
 Given the same `Customer` SQL schema and TypeScript interface as above,
@@ -170,8 +210,10 @@ Given the same `Customer` SQL schema and TypeScript interface as above,
 Example for constructing a new `MyORMContext` with `Pool` for the table, `digital_media_store.Customer`:
 
 ```ts
-const pool = MyORMContext.createPool({ host: 'localhost', port: 3306, user: 'root', password: 'root', database: 'digital_store_media'});
-const customerCtx = new MyORMContext<Customer>(pool, "Customer");
+import { MyORMContext } from '@myorm/myorm';
+import { adapter, createMySql2Pool } from '@myorm/mysql-adapter';
+const pool = createMySql2Pool({ host: 'localhost', port: 3306, user: 'root', password: 'root', database: 'digital_store_media'});
+const customerCtx = new MyORMContext<Customer>(adapter(pool), "Customer");
 ```
 
 Example for constructing a new `MyORMContext` with `Pool` for the table, `digital_media_store.Customer` and `Customer`'s primary key has the 'AUTO_INCREMENT' attribute:  
@@ -221,8 +263,10 @@ export interface Customer {
 Create your context,
 
 ```ts
-const pool = MyORMContext.createPool({ host: 'localhost', port: 3306, user: 'root', password: 'root', database: 'digital_store_media'});
-const customerCtx = new MyORMContext<Customer>(pool, "Customer");
+import { MyORMContext } from '@myorm/myorm';
+import { adapter, createMySql2Pool } from '@myorm/mysql-adapter';
+const pool = createMySql2Pool({ host: 'localhost', port: 3306, user: 'root', password: 'root', database: 'digital_store_media'});
+const customerCtx = new MyORMContext<Customer>(adapter(pool), "Customer");
 ```
 
 __NOTE: You do not have to make your identity property optional, but if you intend to insert into the database, the `.insert` functions will flag your code as type invalid, as it would require that column. If you try to pass a value into a column when inserting and it is attributed as `AUTO_INCREMENT`, typescript will flag the code.__
@@ -272,8 +316,10 @@ export interface Track {
 Create your context,
 
 ```ts
-const pool = MyORMContext.createPool({ host: 'localhost', port: 3306, user: 'root', password: 'root', database: 'digital_store_media'});
-const trackCtx = new MyORMContext<Track>(pool, "Track");
+import { MyORMContext } from '@myorm/myorm';
+import { adapter, createMySql2Pool } from '@myorm/mysql-adapter';
+const pool = createMySql2Pool({ host: 'localhost', port: 3306, user: 'root', password: 'root', database: 'digital_store_media'});
+const customerCtx = new MyORMContext<Track>(adapter(pool), "Track");
 ```
 
 __NOTE: If your foreign table is a one-to-many relationship, then you can specify that same property, but as an array, like `MyForeignTable?: MyForeignType[];`__
@@ -290,8 +336,8 @@ Transaction functions are split amongst two different subsets, explicit and impl
 Explicit transaction functions will consist of a function that uses clauses that were previously built. In `MyORM`, these functions will be:  
   - `.select()`
   - `.count()`
-  - `.updateSelect()`
-  - `.deleteSelect()`
+  - `.updateSelect()` __this may get renamed__
+  - `.deleteSelect()` __this may get renamed__
 
 Each of these functions will work on their own, but clauses will enhance the user-experience in grabbing more records. Meaning, you can use `.select()` alone, and it will behave like a regular `SELECT` command, where it will grab all records from that table. Alternatively, you may prepend [Clause Functions](#clause-functions) before firing the explicit transaction function, and those clauses will be added to the transaction function.
 
@@ -349,11 +395,7 @@ Each of these functions will only be applied when using an [explicit transaction
 
 ## .where()
 
-__NOTE: As of v1.0, There is currently no way to negate an entire condition. You will have to apply [De Morgan's Law](https://en.wikipedia.org/wiki/De_Morgan%27s_laws) in order to achieve negation for now.__
-
 The `.where()` function is a complex function, as it has to cover nesting and chaining of conditions.  
-
-You can use the `.where()` function as many times on your `MyORMContext`, and every time it will chain those conditions together, but the function is intended to be used once with all of the functions, **so please open an issue if you notice a bug with this.**  
 
 The `.where()` function takes in a callback function, where there is one argument, `model`, which is a type of the original model that you provided during construction. This `model` object works on a proxy, where an intercept will take the property you reference and create a new `WhereBuilder` out of it.  
 
@@ -366,6 +408,7 @@ The `WhereBuilder` class provides a library of functions for constructing condit
 In a library like Entity Framework Core (EFC), the syntax uses the actual programming language's operators, however, JavaScript doesn't provide a way to override operators, and so it isn't feasible to mimic this behavior, therefore, you will follow these functions:
 
   - `WhereBuilder`: Class used to assist in building the `WHERE` condition.
+    - `.not()`: Negates the following condition.
     - `.equals(value: TPropertyType)`: Adds a condition where a column's value must be equal to the `value` provided.
       - Synonym: `.eq(value: TPropertyType)`
     - `.notEquals(value: TPropertyType)`: Adds a condition where a column's value must NOT be equal to the `value` provided.
@@ -388,6 +431,82 @@ In a library like Entity Framework Core (EFC), the syntax uses the actual progra
     - `TPropertyType` represents the respective type to the property you reference from the `model` in `modelCallback`.
 
 As mentioned above, each of these functions will return a `.and()` and `.or()` function. These functions will take the same exact syntax as what you pass into your `.where()` function.  
+
+### __.where() negation__
+
+Negating an entire condition can be useful for situations where you may want to avoid attempting to rewrite your conditions, therefore the `WhereBuilder` provides a helpful function, `.not()`, to negate the entirety of the next condition.
+
+Additionally, if you'd like to negate the entire condition as a whole, you can use the `.whereNot()` function.
+
+Here is an example of negating a series of conditions:
+
+```ts
+import { MyORMContext } from '@myorm/myorm';
+import { adapter, createMySql2Pool } from '@myorm/mysql-adapter';
+const pool = createMySql2Pool({ host: 'localhost', port: 3306, user: 'root', password: 'root', database: 'digital_store_media'});
+const customerCtx = new MyORMContext<Customer>(adapter(pool), "Customer");
+
+const customers = await customerCtx
+    .where(m => m.FirstName.equals("John")
+        .and(m => m.LastName.not().equals("Doe")))
+    .select();
+```
+
+This will generate the following SQL (this is sanitized when it is actually sent):
+
+```sql
+SELECT `Customer`.`CustomerId` AS `CustomerId`
+        ,`Customer`.`FirstName` AS `FirstName`
+        ,`Customer`.`LastName` AS `LastName`
+        ,`Customer`.`Company` AS `Company`
+        ,`Customer`.`Address` AS `Address`
+        ,`Customer`.`City` AS `City`
+        ,`Customer`.`State` AS `State`
+        ,`Customer`.`Country` AS `Country`
+        ,`Customer`.`PostalCode` AS `PostalCode`
+        ,`Customer`.`Phone` AS `Phone`
+        ,`Customer`.`Fax` AS `Fax`
+        ,`Customer`.`Email` AS `Email`
+        ,`Customer`.`SupportRepId` AS `SupportRepId`
+    FROM Customer
+    WHERE `Customer`.`FirstName` = 'John'
+        AND NOT `Customer`.`LastName` = 'Doe'
+```
+
+And here is an example of negating all conditions:
+
+```ts
+import { MyORMContext } from '@myorm/myorm';
+import { adapter, createMySql2Pool } from '@myorm/mysql-adapter';
+const pool = createMySql2Pool({ host: 'localhost', port: 3306, user: 'root', password: 'root', database: 'digital_store_media'});
+const customerCtx = new MyORMContext<Customer>(adapter(pool), "Customer");
+
+const customers = await customerCtx
+    .whereNot(m => m.FirstName.equals("John")
+        .and(m => m.LastName.equals("Doe")))
+    .select();
+```
+
+This will generate the following SQL (this is sanitized when it is actually sent):
+
+```sql
+SELECT `Customer`.`CustomerId` AS `CustomerId`
+        ,`Customer`.`FirstName` AS `FirstName`
+        ,`Customer`.`LastName` AS `LastName`
+        ,`Customer`.`Company` AS `Company`
+        ,`Customer`.`Address` AS `Address`
+        ,`Customer`.`City` AS `City`
+        ,`Customer`.`State` AS `State`
+        ,`Customer`.`Country` AS `Country`
+        ,`Customer`.`PostalCode` AS `PostalCode`
+        ,`Customer`.`Phone` AS `Phone`
+        ,`Customer`.`Fax` AS `Fax`
+        ,`Customer`.`Email` AS `Email`
+        ,`Customer`.`SupportRepId` AS `SupportRepId`
+    FROM Customer
+        WHERE NOT `Customer`.`FirstName` = 'John'
+        AND `Customer`.`LastName` = 'Doe'
+```
 
 ### __.where() chaining__
 
@@ -455,8 +574,8 @@ These conventions may save you later on, but it is still confusing because you c
 Example of querying from `digital_media_store.Track` given one condition, `WHERE c1`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx
     .where(m => m.Composer.equals("AC/DC"))
     .select();
@@ -481,8 +600,8 @@ SELECT `Track`.`TrackId` AS `TrackId`
 Example of querying from `digital_media_store.Track` given two conditions, `WHERE c1 AND c2`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx
     .where(m => m.Composer.equals("AC/DC")
         .and(m => m.Name.equals("Dog Eat Dog")))
@@ -509,8 +628,8 @@ SELECT `Track`.`TrackId` AS `TrackId`
 Example of querying from `digital_media_store.Track` given three conditions, `WHERE c1 AND (c2 OR c3)`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx
     .where(m => m.Composer.equals("AC/DC")
         .and(m => m.Name.equals("Dog Eat Dog")
@@ -539,8 +658,8 @@ SELECT `Track`.`TrackId` AS `TrackId`
 Example of querying from `digital_media_store.Track` given four conditions, `WHERE (c1 OR c2) AND (c2 OR c3)`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx
     .where(m => m.Composer.equals("AC/DC")
         .or(m => m.Composer.equals("Apocalyptica"))
@@ -573,8 +692,8 @@ This last example will go more into the functions you have access to, as well as
 Example of querying from `digital_media_store.Track` given nine (9) conditions:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx
     .where(m => m.Composer.equals("AC/DC")
         .and(m => m.Name.equals("Dog Eat Dog")
@@ -629,8 +748,8 @@ You do **NOT** need to specify one of the four direction functions. The default 
 Example of querying from `digital_media_store.Track` sorted in ascending order by `Bytes` (implicit):
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx
     .sortBy(m => m.Bytes)
     .select();
@@ -655,8 +774,8 @@ SELECT `Track`.`TrackId` AS `TrackId`
 Example of querying from `digital_media_store.Track` sorted in ascending order by `Bytes` (explicit):
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx
     .sortBy(m => m.Bytes.asc())
     .select();
@@ -681,8 +800,8 @@ SELECT `Track`.`TrackId` AS `TrackId`
 Example of querying from `digital_media_store.Track` sorted in descending order by `Bytes`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx
     .sortBy(m => m.Bytes.desc())
     .select();
@@ -707,8 +826,8 @@ SELECT `Track`.`TrackId` AS `TrackId`
 Example of querying from `digital_media_store.Track` sorted in descending order by `Composer`, then in ascending order by `Bytes`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx
     .sortBy(m => [m.Composer.desc(), m.Bytes])
     .select();
@@ -752,8 +871,8 @@ The function `.skip()` will skip the number of records specified by the argument
 Example of querying the first 5 records from `digital_media_store.Track`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx
     .take(5)
     .select();
@@ -780,8 +899,8 @@ SELECT `Track`.`TrackId` AS `TrackId`
 Example of querying the first 5 records **AFTER** skipping the first 10 records. from `digital_media_store.Track`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx
     .skip(10)
     .take(5)
@@ -828,8 +947,8 @@ __You can also alias the same column to multiple aliases, although, there probab
 Example of aliasing `digital_media_store.Track` for future reference:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracksAliased = trackCtx.alias(m => ({
     composer: m.Composer,
     bytes: m.Bytes
@@ -849,8 +968,8 @@ Or when referencing the return type from a `.select()` like:
 Example of using `.select()` from the above aliased context:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracksAliased = trackCtx.alias(m => ({
     composer: m.Composer,
     bytes: m.Bytes
@@ -869,8 +988,8 @@ SELECT `Track`.`Composer` AS `composer`
 Example of aliasing a table with an included one-to-one relating table:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"));
 const tracksAliased = await trackCtx.include(m => m.Artist)
     .alias(m => ({
@@ -906,8 +1025,8 @@ SELECT `Track`.`TrackId` AS `TrackId`
 Example of aliasing a table with an included one-to-many relating table:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const playlistsCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const playlistsCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 playlistsCtx.hasMany(m => m.PlaylistTracks.withKeys("PlaylistId", "PlaylistId")
     .andThatHasOne(m => m.Track.withKeys("TrackId", "TrackId")));
 const playlistsAliased = await playlistsCtx.include(m => m.PlaylistTracks.thenInclude(m => m.Track))
@@ -967,8 +1086,8 @@ The `.select()` function is an [explicit transaction function](#explicit-transac
 Example of querying all records from `digital_media_store.Track`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx.select();
 ```
 
@@ -996,8 +1115,8 @@ The `.count()` function works exactly like the `.select()` function, but instead
 Example of querying the count of all records from `digital_media_store.Track`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const tracks = await trackCtx.select();
 ```
 
@@ -1027,8 +1146,8 @@ The syntax for `.insert()` is as follows:
 Example of inserting one record into `digital_media_store.Track`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const track = await trackCtx.insert({
     TrackId: 99999,
     Name: "example track",
@@ -1061,8 +1180,8 @@ INSERT INTO `Track`
 Example of inserting one record into `digital_media_store.Track` when `Track` is aliased.
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
 const track = await trackCtx
     .alias(m => ({
         id: m.TrackId,
@@ -1107,8 +1226,8 @@ INSERT INTO `Track`
 Example of inserting multiple records with all required properties filled out into `digital_media_store.Customer`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const custCtx = new MyORMContext<Customer>(pool, "Customer"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const custCtx = new MyORMContext<Customer>(adapter(pool), "Customer"); 
 const cust = await customerCtx
     .insert([{
         CustomerId: 99995,
@@ -1156,8 +1275,8 @@ INSERT INTO `Customer`
 Example of inserting multiple records with all required properties filled out into `digital_media_store.Customer` when `Customer` is aliased:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const custCtx = new MyORMContext<Customer>(pool, "Customer"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const custCtx = new MyORMContext<Customer>(adapter(pool), "Customer"); 
 const cust = await customerCtx
         .alias(m => ({
             id: m.CustomerId,
@@ -1211,8 +1330,8 @@ INSERT INTO `Customer`
 Example of inserting multiple records with all required properties and some nullable properties (different for each one) filled out into `digital_media_store.Customer`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const custCtx = new MyORMContext<Customer>(pool, "Customer"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const custCtx = new MyORMContext<Customer>(adapter(pool), "Customer"); 
 const cust = await customerCtx
         .insert([{
             CustomerId: 99995,
@@ -1284,8 +1403,8 @@ The syntax for the `.update()` and `.updateSelect()` functions is as follows:
 Example of updating one customer in `digital_media_store.Customer`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const custCtx = new MyORMContext<Customer>(pool, "Customer"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const custCtx = new MyORMContext<Customer>(adapter(pool), "Customer"); 
 const [cust] = await custCtx
     .insert({
         CustomerId: 99999,
@@ -1323,8 +1442,8 @@ UPDATE `Customer`
 Example of updating multiple records in `digital_media_store.Customer`:  
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const custCtx = new MyORMContext<Customer>(pool, "Customer"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const custCtx = new MyORMContext<Customer>(adapter(pool), "Customer"); 
 const custs = await custCtx
     .insert([{
         CustomerId: 99999,
@@ -1380,8 +1499,8 @@ SET `CustomerId` = (CASE
 Example of updating `digital_media_store.Customer` when `Customer` is aliased:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const custCtx = new MyORMContext<Customer>(pool, "Customer")
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const custCtx = new MyORMContext<Customer>(adapter(pool), "Customer")
     .alias(m => ({
         id: m.CustomerId,
         firstName: m.FirstName,
@@ -1427,8 +1546,8 @@ UPDATE `Customer`
 Example of updating one customer in `digital_media_store.Customer`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const custCtx = new MyORMContext<Customer>(pool, "Customer"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const custCtx = new MyORMContext<Customer>(adapter(pool), "Customer"); 
 const [cust] = await custCtx
     .insert({
         CustomerId: 99999,
@@ -1454,8 +1573,8 @@ UPDATE `Customer`
 Example of updating `digital_media_store.Customer` when `Customer` is aliased:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const custCtx = new MyORMContext<Customer>(pool, "Customer")
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const custCtx = new MyORMContext<Customer>(adapter(pool), "Customer")
     .alias(m => ({
         id: m.CustomerId,
         firstName: m.FirstName,
@@ -1496,8 +1615,8 @@ The syntax for the `.delete()` and `.deleteSelect()` functions is as follows:
 Example of deleting from `digital_media_store.Customer`:  
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const custCtx = new MyORMContext<Customer>(pool, "Customer"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const custCtx = new MyORMContext<Customer>(adapter(pool), "Customer"); 
 const custs = await custCtx
     .insert({
         CustomerId: 99999,
@@ -1519,8 +1638,8 @@ DELETE FROM `Customer`
 Example of deleting multiple records from `digital_media_store.Customer`: 
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const custCtx = new MyORMContext<Customer>(pool, "Customer"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const custCtx = new MyORMContext<Customer>(adapter(pool), "Customer"); 
 const custs = await custCtx
     .insert({
         CustomerId: 99999,
@@ -1542,8 +1661,8 @@ DELETE FROM `Customer`
 Example of deleting from `digital_media_store.Customer` when `Customer` is aliased:  
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const custCtx = new MyORMContext<Customer>(pool, "Customer")
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const custCtx = new MyORMContext<Customer>(adapter(pool), "Customer")
     .alias(m => ({
         id: m.CustomerId,
         firstName: m.FirstName,
@@ -1573,8 +1692,8 @@ DELETE FROM `Customer`
 Example of deleting from `digital_media_store.Customer`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const custCtx = new MyORMContext<Customer>(pool, "Customer"); 
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const custCtx = new MyORMContext<Customer>(adapter(pool), "Customer"); 
 const cust = await custCtx
     .insert({
         CustomerId: 99999,
@@ -1634,16 +1753,16 @@ See the images below for examples.
 Example for configuring a one-to-one relationship for `digital_media_store.Artist` on `digital_media_store.Track`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track");
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track");
 trackCtx.hasOne(m => m.Artist.with("Composer").to("Name"));
 ```
 
 Example for configuring a one-to-many relationship for `digital_media_store.PlaylistTrack` on `digital_media_store.Playlist`.
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const playlistCtx = new MyORMContext<Playlist>(pool, "Playlist");
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const playlistCtx = new MyORMContext<Playlist>(adapter(pool), "Playlist");
 // since the property, "m.PlaylistTracks" is not the same as the table name, `PlaylistTrack`, we have to use `.from()` to properly set what it is. 
 playlistCtx.hasMany(m => m.PlaylistTracks.from("PlaylistTrack").with("PlaylistId").to("PlaylistId"));
 ```
@@ -1669,8 +1788,8 @@ __NOTE: If you are including an array (a table configured as a one-to-many relat
 Example of including `digital_media_store.Artist` in a query from `digital_media_store.Track`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track");
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track");
 trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"));
 
 const ts = await trackCtx.include(m => m.Artist)
@@ -1746,8 +1865,8 @@ SELECT `Track`.`TrackId` AS `TrackId`
 Example of including `digital_media_store.Artist` and `digital_media_store.Album` in a query from `digital_media_store.Track`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track");
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track");
 trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"))
     .hasOne(m => m.Album.withKeys("AlbumId", "AlbumId"));
 
@@ -1839,8 +1958,8 @@ SELECT `Track`.`TrackId` AS `TrackId`
 Example like above, but instead using `.groupBy()` in place of `.alias()`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track");
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track");
 trackCtx.hasOne(m => m.Artist.withKeys("Composer", "Name"))
     .hasOne(m => m.Album.withKeys("AlbumId", "AlbumId"));
 
@@ -1934,8 +2053,8 @@ __Coincidentally, this yields the same results__
 Example of including `digital_media_store.PlaylistTrack` in a query from `digital_media_store.Playlist`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Playlist>(pool, "Playlist");
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Playlist>(adapter(pool), "Playlist");
 playlistCtx.hasMany(m => m.PlaylistTracks.fromTable("PlaylistTrack").withKeys("PlaylistId", "PlaylistId"));
 const ps = await playlistCtx.include(m => m.PlaylistTracks)
     .take(5) // For example purposes, we are limiting the query to 5 records
@@ -2043,69 +2162,61 @@ SELECT `Playlist`.`PlaylistId` AS `PlaylistId`
 ]
 ```
 
-# Programmatic Views
+# Managing State
 
-Programmatic Views is another term used in `MyORM` to store the state of a context and its clauses built using [clause functions](#clause-functions) so that it can be reusable indefinitely throughout the state of its existence.
+State in `MyORM` can mean a lot to the consumer of this library. The intention of `MyORM` is to make it so you, the consumer, can consistently reuse the state of a context however much you want.  
 
-When working with `MyORMContext` objects, every time you use a [clause function](#clause-functions) or another function that alters the state of how your query is built, then the previous `MyORMContext` class object is recycled and thrown away, as a new one gets created. This is to maintain a state of each previous context.  
-
-Whenever a state is transferred from one context to another, the previous context's state is completely reset, so if you try to save a context with a built clause state, and query from it once, it immediately resolves back to its original state of when it was created.
-
-Here is an example of that:
+For example, you may have an API where you always grab a group of users within a certain role-- In that case, you can create a static state of your context that always filters out users of that role.  
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track");
-const acdcTracksCtx = trackCtx.where(m => m.Composer.equals("AC/DC"));
+const users: MyORMContext<User> = new MyORMContext(adapterCnn, "User");
+const admins = users.where(m => m.RoleName.equals("ADMIN"));
 
-const acdcTracks1 = await acdcTracksCtx.select();
+//express
+async function GET_admins(req, res) {
+    const { username, email } = req.query;
 
-const acdcTracks2 = await acdcTracksCtx.select();
+    let ctx = admins; // ctx is used to maintain the state
+    if(username) {
+        ctx = ctx.where(m => m.Username.contains(username));
+    }
+    if(email) {
+        ctx = ctx.where(m => m.Email.contains(email));
+    }
 
-assert(acdcTracks1.length == acdcTracks2.length); // this will throw an exception...
+    const users = await ctx.select();
+
+    res.send(JSON.stringify(users));
+}
+
+// api call: /admins will yield
+/**
+ * [
+ *   {
+ *     "Username": "johndoe2",
+ *     "Email": "johndoe2@yahoo.com",
+ *     "RoleName": "ADMIN"
+ *   },
+ *   {
+ *     "Username": "janedoe2",
+ *     "Email": "janedoe2@yahoo.com",
+ *     "RoleName": "ADMIN"
+ *   }
+ * ]
+ */
 ```
 
-As the above example shows, we attempt to query from the `acdcTracksCtx` twice, but the assertion will show that the length of the resulting tracks are not the same, when a user may expect them to be the same.  
+As you can see in the example above-- We save a static instance of `MyORMContext` with a new state with a `where` clause added to it.  
 
-It may be a future update where programmatic views are just built in, but for now, you must explicitly define a context's state with the function, `.asView()` (synonym: `.view()`)
+In `MyORM`, every time a new clause is added, a new context is created with a specific state. That state will __never__ alter, and therefore, the context will only ever construct a SQL command with those clauses added to it.  
 
-Here is a __working__ example of the above example:
-
-```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track");
-const acdcTracksCtx = trackCtx.where(m => m.Composer.equals("AC/DC")).asView(); // notice the `.asView()` chain here.
-
-const acdcTracks1 = await acdcTracksCtx.select();
-
-const acdcTracks2 = await acdcTracksCtx.select();
-
-assert(acdcTracks1.length == acdcTracks2.length); // This will pass!
-```
-
-You can use programmatic views throughout your program if you intend to consistently reuse similar clauses that have been built.  
-
-Also, just because the view has been created, doesn't mean that you can no longer build more clauses... You can continue to build clauses, and every state thereafter will always recycle its state back to the state of which it was at when `.asView()` was called.
-
-Here is an example of further configuring clauses on an existing programmatic view:
-
-```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track");
-const acdcTracksCtx = trackCtx.where(m => m.Composer.equals("AC/DC")).asView(); // notice the `.asView()` chain here.
-
-const acdcTracks1 = await acdcTracksCtx.where(m => m.Bytes.lessThan(7500000)).select();
-
-const acdcTracks2 = await acdcTracksCtx.select();
-
-assert(acdcTracks1.length == 1 && acdcTracks2.length == 8); // This will pass!
-```
+If you need to dynamically add clauses to your query based on if some property exists, like the example above, you just need to maintain a variable corresponding to the final context you'd want to transact with.
 
 # Logging
 
 Logging is useful for reasons that doesn't need to be gone into.  
 
-`MyORM` utilizes `mysql2`'s pool listeners to create unique logging events whenever a command is executed, holding different handlers for instances of success or failure.  
+`MyORM` utilizes `node.js` pool listeners to create unique logging events whenever a command is executed, holding different handlers for instances of success or failure.  
 
 To add a logging listener to your table, you must use the `.onSuccess()` or `.onFail()` functions, additionally, you can choose what types of commands are logged, by using `.on_Success()` or `.on_Fail()` functions, where the `_` is the type of command.  
 
@@ -2130,8 +2241,6 @@ Syntax of `SuccessHandler`:
     - `OnSuccessData`
       - `affectedRows: number?`: Number of affected rows (may be null or undefined if the command was not an delete/update)
       - `dateIso: string`: Date as an ISO string of when the command occurred.
-      - `host: string`: Host of the database the command was sent to.
-      - `schema: string`: Schema of the table the command was worked on.
       - `cmdRaw: string`: Command in its raw format, or otherwise how it would be sent directly from something like MySQL workbench.
       - `cmdSanitized: string`: Command in its sanitized format and how it is sent to the server.
       - `args`: Arguments that were passed along with `cmdSanitized`.
@@ -2139,10 +2248,8 @@ Syntax of `SuccessHandler`:
 Syntax of `FailHandler`:
   - `(cmdData: OnFailData) => void`
     - `OnFailData`
-      - `error: <mysql2>.QueryError`: Error that was generated by mysql2.
+      - `error: Error`: Error that was thrown during the transaction.
       - `dateIso: string`: Date as an ISO string of when the command occurred.
-      - `host: string`: Host of the database the command was sent to.
-      - `schema: string`: Schema of the table the command was worked on.
       - `cmdRaw: string`: Command in its raw format, or otherwise how it would be sent directly from something like MySQL workbench.
       - `cmdSanitized: string`: Command in its sanitized format and how it is sent to the server.
       - `args`: Arguments that were passed along with `cmdSanitized`.
@@ -2152,8 +2259,7 @@ You can use these handlers to properly monitor the state of your commands that a
 Here is an example of setting up a `SuccessHandler`:
 
 ```ts
-const pool = MyORMContext.createPool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
-const trackCtx = new MyORMContext<Track>(pool, "Track");
+const trackCtx = new MyORMContext<Track>(adapterCnn, "Track");
 const onSuccess: SuccessHandler = function({ schema, host, cmdRaw, cmdSanitized }) {
     console.log(cmdRaw);
 }

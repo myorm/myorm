@@ -4,6 +4,6 @@ node_modules
 /out
 /out/**/*
 package-lock.json
-/lib/tests/bb.ts
+/lib/tests/custom_test.js
 .env
 output.txt
