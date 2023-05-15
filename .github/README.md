@@ -854,7 +854,245 @@ SELECT `Track`.`TrackId` AS `TrackId`
 
 __NOTE: GROUP BY documentation is still under construction...__
 
+Grouping in SQL can yield some additional information you may want a User to see.  
+
+In some situations, you may want to see how many customers you may have per country, and this is where the `.groupBy()` function will be useful.
+
+The syntax for `.groupBy()` follows the same pattern as the rest of `MyORM`-- a modelcallback should be provided. In this scenario, the return type is the main factor we want to look at.
+
+The return type for each property reference on your `model` in the `modelCallback` returns the property name itself.  
+
+Additionally, the `modelCallback` provides an extra parameter for use, called `aggregates`. This parameter is an object with six (6) functions available for aggregate data use.
+
+Here is the full syntax for `.groupBy()`:
+  - `.groupBy((model: TTableModel, aggregates: Aggregates) => string|string[])`: Group the specified columns into the query a long with the aggregates also specified.
+    - `<TTableModel>`: Model representing the table in the context.
+    - `<Aggregates>`: Object holding functions for aggregate data use.
+      - `total: () => string`: Gets the total number of records within each group.
+      - `count: (col: keyof TTableModel) => string`: Gets the total number of records with a distinct column, `col`.
+      - `avg: (col: keyof TTableModel) => string`: Gets the average of that column across that group.
+      - `min: (col: keyof TTableModel) => string`: Gets the minimum of that column across that group.
+      - `max: (col: keyof TTableModel) => string`: Gets the maximum of that column across that group.
+      - `sum: (col: keyof TTableModel) => string`: Gets the total sum of that column across that group.
+
+__The return type for the `modelCallback` says `string|string[]` above, but it is actually a lot more intuitive than that. The return type has to be a key of `TTableModel` or it has to be some special variation conconcted by `MyORM` for an aggregate.__
+
+With that being said, each aggregate function uses some special `lisp` technology, where `TypeScript` will break down and rebuild the string of the key passed into the aggregate function, then return a new variation that looks like this: `${aggr}_{col}` or if the column is on an included table: `${aggr}_{table}_{col}`. (`{aggr}` being "count"/"avg"/"min"/"max"/"sum" and `{col}` being some property from `TTableModel`.)
+
+Since that is the return type for all of those functions, that means each record returned from a query will have their respective aggregate in that same notation as a property.
+
+__NOTE: For joined tables, you will get a slightly different result, especially for tables that are configured as a one-to-many relationship. For example, in a one-to-many related inclusion, if you group a column from that included table, then the table's property will not be an array, as you would expect-- it will be a singular object, nesting all the way down to the column you grouped on. There is an example down below that explains more.__
+
 ### .groupBy() examples
+
+Here is an example of grouping by `Track`.`Composer` with no aggregates:
+
+```ts
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
+const tracks = await trackCtx
+    .groupBy(m => m.Composer)
+    .select();
+```
+
+This will generate the following SQL (this is sanitized when it is actually sent):
+
+```sql
+SELECT `Track`.`Composer`
+	FROM Track
+	GROUP BY `Track`.`Composer`
+```
+
+This will generate the following results:
+
+```
+[
+  { Composer: 'Angus Young, Malcolm Young, Brian Johnson' },
+  { Composer: null },
+  { Composer: 'F. Baltes, S. Kaufman, U. Dirkscneider & W. Hoffman' },
+  {
+    Composer: 'F. Baltes, R.A. Smith-Diesel, S. Kaufman, U. Dirkscneider & W. Hoffman'
+  },
+  { Composer: 'Deaffy & R.A. Smith-Diesel' },
+  { Composer: 'AC/DC' },
+  { Composer: 'Steven Tyler, Joe Perry, Jack Blades, Tommy Shaw' },
+  { Composer: 'Steven Tyler, Joe Perry' },
+  { Composer: 'Steven Tyler, Joe Perry, Jim Vallance, Holly Knight' },
+  { Composer: 'Steven Tyler, Joe Perry, Desmond Child' },
+  ...
+]
+```
+
+Here is an example of grouping by `Track`.`Composer` and `Track`.`AlbumId` with no aggregates:
+
+```ts
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
+const tracks = await trackCtx
+    .groupBy(m => [m.Composer, m.AlbumId])
+    .select();
+```
+
+This will generate the following SQL (this is sanitized when it is actually sent):
+
+```sql
+SELECT `Track`.`Composer`
+		,`Track`.`AlbumId`
+	FROM Track
+	GROUP BY `Track`.`Composer`,`Track`.`AlbumId`
+```
+
+This will generate the following results:
+
+```
+[
+  { Composer: 'Angus Young, Malcolm Young, Brian Johnson', AlbumId: 1 },
+  { Composer: null, AlbumId: 2 },
+  {
+    Composer: 'F. Baltes, S. Kaufman, U. Dirkscneider & W. Hoffman',
+    AlbumId: 3
+  },
+  ...
+]
+```
+
+Here is an example of grouping by `Track`.`Composer` with all aggregates with `Bytes`, except for `count()`, where that will be on `AlbumId`:
+
+```ts
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const trackCtx = new MyORMContext<Track>(adapter(pool), "Track"); 
+const tracks = await trackCtx
+    .groupBy((m, { total, count, avg, min, max, sum }) => [m.Composer, total(), count(m.AlbumId), avg(m.Bytes), min(m.Bytes), max(m.Bytes), sum(m.Bytes)])
+    .select();
+```
+
+This will generate the following SQL (this is sanitized when it is actually sent):
+
+```sql
+SELECT `Track`.`Composer`
+		,COUNT(*) AS $total
+		,COUNT(DISTINCT `Track`.`AlbumId`) AS `$count_AlbumId`
+		,AVG(`Track`.`Bytes`) AS `$avg_Bytes`
+		,MIN(`Track`.`Bytes`) AS `$min_Bytes`
+		,MAX(`Track`.`Bytes`) AS `$max_Bytes`
+		,SUM(`Track`.`Bytes`) AS `$sum_Bytes`
+	FROM Track
+	GROUP BY `Track`.`Composer`
+```
+
+This will generate the following results:
+
+```
+[
+  {
+    Composer: null,
+    '$total': 978,
+    '$count_AlbumId': 82,
+    '$avg_Bytes': 97897024.002,
+    '$min_Bytes': 161266,
+    '$max_Bytes': 1059546140,
+    '$sum_Bytes': 95743289474
+  },
+  {
+    Composer: 'A. F. Iommi, W. Ward, T. Butler, J. Osbourne',
+    '$total': 3,
+    '$count_AlbumId': 1,
+    '$avg_Bytes': 7655450.6667,
+    '$min_Bytes': 5609799,
+    '$max_Bytes': 11626740,
+    '$sum_Bytes': 22966352
+  },
+  {
+    Composer: 'A. Jamal',
+    '$total': 1,
+    '$count_AlbumId': 1,
+    '$avg_Bytes': 8980400,
+    '$min_Bytes': 8980400,
+    '$max_Bytes': 8980400,
+    '$sum_Bytes': 8980400
+  },
+  ...
+]
+```
+
+
+Here is an example of grouping `Playlist` on the joined `PlaylistTrack` and `Track` for `Playlist`.`Name` and `Track`.`Composer`, as well as the same aggregate information as above. (Getting data about playlists)
+
+```ts
+const pool = createMySql2Pool({ database: "digital_media_store", host: "localhost", port: 3306, user: "root", password: "root" });
+const playlistCtx = new MyORMContext<Playlist>(adapter(pool), "Playlist"); 
+// ... hasOne and hasMany configurations...
+const playlists = await playlistsCtx
+    .include(m => m.PlaylistTracks.thenInclude(m => m.Track))
+    .groupBy((m, { total, count, avg, min, max, sum }) => [
+        m.Name,
+        m.PlaylistTracks.Track.Composer,
+        total(),
+        count(m.PlaylistTracks.Track.AlbumId),
+        avg(m.PlaylistTracks.Track.Bytes),
+        min(m.PlaylistTracks.Track.Bytes),
+        max(m.PlaylistTracks.Track.Bytes),
+        sum(m.PlaylistTracks.Track.Bytes)
+    ])
+    .select();
+```
+
+This will generate the following SQL (this is sanitized when it is actually sent):
+
+```sql
+SELECT `Playlist`.`Name`
+		,`Track`.`Composer` AS `PlaylistTracks_Track_Composer`
+		,COUNT(*) AS $total
+		,COUNT(DISTINCT `Track`.`AlbumId`) AS `$count_PlaylistTracks_Track_AlbumId`
+		,AVG(`Track`.`Bytes`) AS `$avg_PlaylistTracks_Track_Bytes`
+		,MIN(`Track`.`Bytes`) AS `$min_PlaylistTracks_Track_Bytes`
+		,MAX(`Track`.`Bytes`) AS `$max_PlaylistTracks_Track_Bytes`
+		,SUM(`Track`.`Bytes`) AS `$sum_PlaylistTracks_Track_Bytes`
+	FROM Playlist
+		LEFT JOIN `PlaylistTrack` ON `Playlist`.`PlaylistId`=`PlaylistTrack`.`PlaylistId`
+		LEFT JOIN `Track` ON `PlaylistTrack`.`TrackId`=`Track`.`TrackId`
+	GROUP BY `Playlist`.`Name`,`Track`.`Composer`
+```
+
+This will generate the following results:
+
+```
+[
+  {
+    Name: '90\x92s Music',
+    PlaylistTracks: { Track: [Object] },
+    '$total': 267,
+    '$count_PlaylistTracks_Track_AlbumId': 26,
+    '$avg_PlaylistTracks_Track_Bytes': 7611219.4195,
+    '$min_PlaylistTracks_Track_Bytes': 161266,
+    '$max_PlaylistTracks_Track_Bytes': 17533664,
+    '$sum_PlaylistTracks_Track_Bytes': 2032195585
+  },
+  {
+    Name: '90\x92s Music',
+    PlaylistTracks: { Track: [Object] },
+    '$total': 1,
+    '$count_PlaylistTracks_Track_AlbumId': 1,
+    '$avg_PlaylistTracks_Track_Bytes': 13065612,
+    '$min_PlaylistTracks_Track_Bytes': 13065612,
+    '$max_PlaylistTracks_Track_Bytes': 13065612,
+    '$sum_PlaylistTracks_Track_Bytes': 13065612
+  },
+  {
+    Name: '90\x92s Music',
+    PlaylistTracks: { Track: [Object] },
+    '$total': 2,
+    '$count_PlaylistTracks_Track_AlbumId': 1,
+    '$avg_PlaylistTracks_Track_Bytes': 8069559.5,
+    '$min_PlaylistTracks_Track_Bytes': 7529336,
+    '$max_PlaylistTracks_Track_Bytes': 8609783,
+    '$sum_PlaylistTracks_Track_Bytes': 16139119
+  },
+  ...
+]
+```
+
+__Note: As you can see, although you may expect `PlaylistTracks` to be an array, it is not, and is instead a pure object. When grouping in `MyORM`, there is no reason to smush records together anymore, as the whole point of grouping is for each result to be a unique group of its own.__
 
 ## .take() and .skip()
 
@@ -2216,7 +2454,7 @@ If you need to dynamically add clauses to your query based on if some property e
 
 Logging is useful for reasons that doesn't need to be gone into.  
 
-`MyORM` utilizes `node.js` pool listeners to create unique logging events whenever a command is executed, holding different handlers for instances of success or failure.  
+`MyORM` utilizes `node.js` Event Emitters to create unique logging events whenever a command is executed, holding different handlers for instances of success or failure.  
 
 To add a logging listener to your table, you must use the `.onSuccess()` or `.onFail()` functions, additionally, you can choose what types of commands are logged, by using `.on_Success()` or `.on_Fail()` functions, where the `_` is the type of command.  
 
@@ -2239,7 +2477,7 @@ This callback is the type of `SuccessHandler` or `FailHandler`.
 Syntax of `SuccessHandler`:
   - `(cmdData: OnSuccessData) => void`
     - `OnSuccessData`
-      - `affectedRows: number?`: Number of affected rows (may be null or undefined if the command was not an delete/update)
+      - `affectedRows: number?`: Number of affected rows (may be null or undefined if the command was not an update or delete command)
       - `dateIso: string`: Date as an ISO string of when the command occurred.
       - `cmdRaw: string`: Command in its raw format, or otherwise how it would be sent directly from something like MySQL workbench.
       - `cmdSanitized: string`: Command in its sanitized format and how it is sent to the server.
@@ -2260,8 +2498,10 @@ Here is an example of setting up a `SuccessHandler`:
 
 ```ts
 const trackCtx = new MyORMContext<Track>(adapterCnn, "Track");
-const onSuccess: SuccessHandler = function({ schema, host, cmdRaw, cmdSanitized }) {
-    console.log(cmdRaw);
+const onSuccess: SuccessHandler = function({ dateIso, cmdRaw, cmdSanitized }) {
+    console.log(`Command executed at [${dateIso}]`);
+    console.log("Raw", cmdRaw);
+    console.log("Sanitized", cmdSanitized);
 }
 trackCtx.onSuccess(onSuccess);
 ```
