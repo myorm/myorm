@@ -1092,7 +1092,7 @@ This will generate the following results:
 ]
 ```
 
-__Note: As you can see, although you may expect `PlaylistTracks` to be an array, it is not, and is instead a pure object. When grouping in `MyORM`, there is no reason to smush records together anymore, as the whole point of grouping is for each result to be a unique group of its own.__
+__Note: As you can see, although you may expect `PlaylistTracks` to be an array, it is not, and is instead a pure object. When grouping in `MyORM`, there is no reason to smush records together anymore, as the whole point of grouping is for each result to be a unique group containing distinct data about the group as a whole.__
 
 ## .take() and .skip()
 
