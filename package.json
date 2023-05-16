@@ -1,6 +1,6 @@
 {
 	"name": "@myorm/myorm",
-	"version": "0.3.4",
+	"version": "0.3.6",
 	"homepage": "https://github.com/myorm/myorm",
 	"repository": {
 		"type": "git",
@@ -13,7 +13,7 @@
 	"scripts": {
 		"document": "jsdoc ./lib/src/ -t ./node_modules/docdash -c ./jsdoc-conf.json",
 		"clean": "del /S /Q .\\dist",
-		"build": "npm run clean && npm run build:esm && npm run build:cjs",
+		"build": "npm run test > output.txt && npm run clean && npm run build:esm && npm run build:cjs",
 		"build:esm": "tsc -p ./configs/tsconfig.esm.json",
 		"build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
 		"test": "node ./lib/tests/test.js",
