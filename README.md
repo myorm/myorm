@@ -1,3 +1,5 @@
+![myorm-logo-text-description-640x283](https://github.com/myorm/myorm/assets/55516053/011d0513-48b5-44bc-aa1b-06860eeb7517)
+
 # myorm
 `MyORM` is an open-source type-safe ORM model intended to be used in a similar fashion to Microsoft's Entity Framework Core.
 
@@ -5,7 +7,7 @@
 
 Below are a few brief non-descriptive examples of some of the features `MyORM` has to offer using the [mysql-adapter](#mysql).
 
-If you'd like to read about all of the features and what `MyORM` has to offer, you can read more documentation [here](https://github.com/traviszuleger/mysql-contexts)
+If you'd like to read about all of the features and what `MyORM` has to offer, you can read more documentation [here](https://github.com/@myorm/myorm)
 
 ## Query
 
