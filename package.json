@@ -1,6 +1,6 @@
 {
 	"name": "@myorm/myorm",
-	"version": "0.3.9",
+	"version": "0.3.13",
 	"homepage": "https://github.com/myorm/myorm",
 	"repository": {
 		"type": "git",
@@ -16,7 +16,7 @@
 		"build": "npm run test > output.txt && npm run clean && npm run build:esm && npm run build:cjs && npm run rollup",
 		"build:esm": "tsc -p ./configs/tsconfig.esm.json",
 		"build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
-        "rollup": "rollup -c",
+		"rollup": "rollup -c",
 		"test": "node ./lib/tests/test.js",
 		"ctest": "node ./lib/tests/test.js -c",
 		"prepack": "npm run build"
@@ -45,6 +45,7 @@
 	"license": "(MIT OR Apache-2.0)",
 	"type": "module",
 	"devDependencies": {
+		"@myorm/mysql-adapter": "^0.0.1",
 		"@types/node": "^18.11.18",
 		"docdash": "^2.0.1",
 		"dotenv": "^16.0.3",
