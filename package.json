@@ -1,6 +1,6 @@
 {
 	"name": "@myorm/myorm",
-	"version": "0.3.19",
+	"version": "0.3.21",
 	"homepage": "https://github.com/myorm/myorm",
 	"repository": {
 		"type": "git",
@@ -18,7 +18,7 @@
 		"build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
 		"rollup": "rollup -c",
 		"test": "node ./lib/tests/test.js",
-		"ctest": "node ./lib/tests/test.js -c",
+		"ctest": "node ./lib/tests/test.js -C",
 		"prepack": "npm run build"
 	},
 	"keywords": [
