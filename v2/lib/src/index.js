@@ -168,9 +168,9 @@ export class MyORMContext {
     sort = this.sortBy;
 
     /**
-     * @template {spf_GroupByClauseProperty<TTableModel>|spf_GroupByClauseProperty<TTableModel>[]} T
-     * @param {(model: GroupByCallbackModel<TTableModel>) => T} modelCallback 
-     * @returns {MyORMContext<TTableModel, T>}
+     * @template {GroupedColumnsModel<TTableModel>} TGroupedColumns
+     * @param {(model: SpfGroupByCallbackModel<TTableModel>, aggregates: Aggregates) => keyof TGroupedColumns|(keyof TGroupedColumns)[]} modelCallback 
+     * @returns {MyORMContext<ReconstructAbstractModel<TTableModel, TGroupedColumns>, ReconstructAbstractModel<TTableModel, TGroupedColumns>>} A new context with the all previously configured clauses and the updated groupings.
      */
     groupBy(modelCallback) {
         return this.#transfer(ctx => {
@@ -182,19 +182,35 @@ export class MyORMContext {
                     }
                     let o = {
                         table,
-                        column: p,
-                        avg: () => ({ ...o, aggregate: "AVG" }),
-                        count: () => ({ ...o, aggregate: "COUNT" }),
-                        min: () => ({ ...o, aggregate: "MIN" }),
-                        max: () => ({ ...o, aggregate: "MAX" }),
-                        sum: () => ({ ...o, aggregate: "SUM" }),
-                        total: () => ({ ...o, aggregate: "TOTAL" })
+                        column: p
                     };
                     return o;
                 }
             });
 
-            const groups = modelCallback(newProxy());
+            /**
+             * 
+             * @param {"AVG"|"COUNT"|"MIN"|"MAX"|"SUM"|"TOTAL"} aggr
+             * @returns {(col?: any) => any} 
+             */
+            const getGroupedColProp = (aggr) => {
+                return (col) => {
+                    const [table, column] = col.split('_');
+                    return {
+                        table,
+                        column
+                    }
+                };
+            };
+
+            const groups = modelCallback(newProxy(), {
+                avg: getGroupedColProp("AVG"),
+                count: getGroupedColProp("COUNT"),
+                min: getGroupedColProp("MIN"),
+                max: getGroupedColProp("MAX"),
+                sum: getGroupedColProp("SUM"),
+                total: getGroupedColProp("TOTAL")
+            });
 
             ctx.#state.groupBy = Array.isArray(groups) ? groups : [groups];
         });
@@ -217,7 +233,7 @@ export class MyORMContext {
     /**
      * @template {AbstractModel} TNewAliasModel
      * @param {(ctx: MyORMContext<TTableModel, TNewAliasModel>) => void} callback 
-     * @returns {MyORMContext<TTableModel, any>}
+     * @returns {MyORMContext<any, any>}
      */
     #transfer(callback) {
         /** @type {MyORMContext<TTableModel, TNewAliasModel>} */
@@ -294,31 +310,117 @@ export class MyORMContext {
  * @typedef {{[K in keyof TTransformingModel]-?: TTransformingModel[K] extends (infer U extends AbstractModel)[]|undefined ? AugmentModel<U, TFinalType> : TTransformingModel[K] extends (AbstractModel|undefined) ? AugmentModel<TTransformingModel[K], TFinalType> : TFinalType}} AugmentModel
  */
 
-/**
- * @template {AbstractModel} T
- * @template {string} S
- * @typedef {{[K in keyof T]: S}} Superficial
+/*****************************************************************
+ *                            STRINGS                            *
+ *****************************************************************/
+
+/** Contains
+ * Checks if the given string type, `K`, contains `TContainer`, and if so, returns `K`, otherwise it returns `never`.
+ * @template {string|symbol|number} K
+ * @template {string} TContainer
+ * @typedef {K extends `${infer A}${TContainer}${infer B}` ? K : never} Contains
  */
 
-/**
- * Augments the given type, `TTransformingModel` so that all of its non `AbstractModel` property types 
- * (including nested properties within `AbstractModel` type properties) instead have the type of string with all keys.  
- * __NOTE: This is a superficial type, meaning the actual types used within JS code may not align with this type.__
- * @template {AbstractModel} TTransformingModel
- * Type to recurse through to augment.
- * @template {string} [TKey=keyof TTransformingModel & string]
- * @typedef {{[K in keyof TTransformingModel]-?: TTransformingModel[K] extends (infer U extends AbstractModel)[]|undefined ? spf_AugmentModel<U, `${TKey}_${K & string}`> : TTransformingModel[K] extends (AbstractModel|undefined) ? spf_AugmentModel<TTransformingModel[K], `${TKey}_${K & string}`> : Superficial<TTransformingModel, `${TKey}_${K & string}`>}} spf_AugmentModel
+/** StartsWith
+ * Checks if the given string type, `K`, begins with `TStarter`, and if so, returns `K`, otherwise it returns `never`.
+ * @template {string|symbol|number} K
+ * @template {string} TStarter
+ * @typedef {K extends `${TStarter}${infer A}` ? K : never} StartsWith
+ */
+
+/** Join
+ * Recursively joins all nested objects keys to get a union of all combinations of strings with each key. 
+ * @template {AbstractModel} T
+ * @template {keyof T & string} [TKey=keyof T & string]
+ * @typedef {undefined extends T 
+ *      ? never 
+ *      : T[TKey] extends (infer R extends AbstractModel)[]|undefined 
+ *          ? T extends T[TKey] 
+ *              ? never 
+ *              : `${TKey}_${Join<R>}` 
+ *          : T[TKey] extends AbstractModel|undefined 
+ *              ? `${TKey}_${Join<T[TKey]>}` 
+ *              : never} Join
+ */
+
+/** Car
+ * Grabs the first element in the String, separated by "_".
+ * @template {string|symbol|number} K
+ * @typedef {K extends `${infer A}_${infer B}` ? A : K} Car
+ */
+
+/** Cdr
+ * Grabs the remaining elements in the String, separated by "_".
+ * @template {string|symbol|number} K
+ * @typedef {K extends `${infer B}_${infer A}` ? A : never} Cdr
+ */
+
+/*********************************************************************
+ *                            SUPERFICIAL                            *
+ *********************************************************************/
+
+// Superficial types are used to help TypeScript create a much more intuitive type in the end.
+// Since MyORM is constructed using Proxies, many of the return types are only ever used internally. This may make development harder,
+// but it makes it where we can influence the typing in whatever direction we want. With this power, the final results that the User should only see
+// would be more accurate than if we were to not use superficial types.
+
+// All types that use the following types should be prepended with 'Spf' for better communication that it is a Superficial type.
+//   the comment describing the type should describe what is actually returned.
+
+/** AugmentAllValues
+ * Augments the type, `T`, so that all nested keys have some reflection of their parent name. (e.g., { Foo: { Bar: "" } } becomes { Foo: { Foo_Bar: "" } } )
+ * @template {AbstractModel} T
+ * @template {string} [Pre=``]
+ * @typedef {{[K in keyof T]-?: T[K] extends (infer R extends AbstractModel)[]|undefined 
+ *   ? AugmentAllValues<R, `${Pre}${K & string}_`> 
+ *   : T[K] extends AbstractModel|undefined 
+ *     ? AugmentAllValues<T[K], `${Pre}${K & string}_`> 
+ *     : `${Pre}${K & string}`}} AugmentAllValues
+ */
+
+/** ReconstructObject
+ * Transforms a string or union thereof that resembles some finitely nested properties inside of `TOriginal` model 
+ * into its actual representation as shown in `TOriginal`. 
+ * @template {AbstractModel} TOriginal
+ * @template {string|symbol|number} TSerializedKey
+ * @typedef {Contains<TSerializedKey, "_"> extends never 
+ *   ? TSerializedKey extends keyof TOriginal 
+ *     ? {[K in TSerializedKey]: TOriginal[TSerializedKey]} 
+ *     : never
+ *   : {[K in Car<TSerializedKey> as K extends keyof TOriginal ? K : never]: K extends keyof TOriginal 
+ *     ? TOriginal[K] extends (infer R extends AbstractModel)[]|undefined
+ *       ? ReconstructObject<R, Cdr<TSerializedKey>> 
+ *       : TOriginal[K] extends AbstractModel|undefined
+ *         ? ReconstructObject<Exclude<TOriginal[K], undefined>, Cdr<TSerializedKey>> 
+ *         : TOriginal[K]
+ *     : never} 
+ * } ReconstructObject
+ */
+
+/** ReconstructAbstractModel
+ * Transforms an object, `T`, with non-object value properties where each property key can be mapped back to `TOriginal` using {@link ReconstructValue<TOriginal, keyof T>}
+ * @template {AbstractModel} TOriginal
+ * @template {AbstractModel} T
+ * @typedef {{[K in keyof T as StartsWith<K, "$">]: number} & ReconstructObject<TOriginal, keyof T>} ReconstructAbstractModel
  */
 
 /***************************************************************
  *                            WHERE                            *
  ***************************************************************/
 
-/** @typedef {"WHERE"|"WHERE NOT"|"AND"|"AND NOT"|"OR"|"OR NOT"} WhereChain */
-/** @typedef {"="|"<>"|"<"|">"|"<="|">="|"IN"|"LIKE"} WhereCondition */
-/** @typedef {[WhereClauseProperty, ...(WhereClauseProperty|WhereClausePropertyArray)[]]} WhereClausePropertyArray */
+/** WhereChain
+ * @typedef {"WHERE"|"WHERE NOT"|"AND"|"AND NOT"|"OR"|"OR NOT"} WhereChain 
+ */
 
-/**
+/** WhereCondition
+ * @typedef {"="|"<>"|"<"|">"|"<="|">="|"IN"|"LIKE"} WhereCondition 
+ */
+
+/** WhereClausePropertyArray
+ * @typedef {[WhereClauseProperty, ...(WhereClauseProperty|WhereClausePropertyArray)[]]} WhereClausePropertyArray 
+ */
+
+/** WhereClauseProperty
  * @typedef {object} WhereClauseProperty
  * @prop {string} property
  * @prop {WhereChain} chain
@@ -330,43 +432,77 @@ export class MyORMContext {
  *                            GROUP BY                            *
  ******************************************************************/
 
-/**
+/** GroupByClauseProperty
  * @typedef {Column & { aggregate?: "AVG"|"COUNT"|"MIN"|"MAX"|"SUM"|"TOTAL" }} GroupByClauseProperty
  */
 
-/**
- * @typedef {object} GroupByCallbackModelProp
- * @prop {() => GroupByClauseProperty} total
+/** GroupedColumnsModel
+ * Model representing grouped models, including aggregates.
+ * @template {AbstractModel} TTableModel
+ * @typedef {{[K in keyof Partial<TTableModel>]: GroupByClauseProperty}
+ *  & Partial<{ $total: GroupByClauseProperty }>
+ *  & Partial<{[K in keyof TTableModel as `$count_${Join<TTableModel, K & string>}`]: GroupByClauseProperty}>
+ *  & Partial<{[K in keyof TTableModel as `$avg_${Join<TTableModel, K & string>}`]: GroupByClauseProperty}>
+ *  & Partial<{[K in keyof TTableModel as `$max_${Join<TTableModel, K & string>}`]: GroupByClauseProperty}>
+ *  & Partial<{[K in keyof TTableModel as `$min_${Join<TTableModel, K & string>}`]: GroupByClauseProperty}>
+ *  & Partial<{[K in keyof TTableModel as `$sum_${Join<TTableModel, K & string>}`]: GroupByClauseProperty}>} GroupedColumnsModel
  */
 
-/**
- * @template {AbstractModel} T
- * @typedef {AugmentModel<T, GroupByCallbackModelProp>} GroupByCallbackModel
+/** Aggregates
+ * Object representing the `aggregate` object passed into the `.groupBy` callback function.
+ * @typedef {Object} Aggregates
+ * @prop {() => "$total"} total Gets the total count of all records from the query.
+ * @prop {AggrCountCallback} count Gets the count of distinct rows for that field.
+ * @prop {AggrAvgCallback} avg Gets the average amount across all rows for that field.
+ * @prop {AggrMaxCallback} max Gets the maximum amount between all rows for that field.
+ * @prop {AggrMinCallback} min Gets the minimum amount between all rows for that field.
+ * @prop {AggrSumCallback} sum Gets the total sum amount across all rows for that field.
  */
 
-// superficial
+/** AggrCountCallback
+ * @typedef {import('./util.js').AggrCountCallback} AggrCountCallback 
+ */
 
-/**
- * __NOTE: This is a superficial type, meaning the actual types used within JS code may not align with this type.__
- * @template {AbstractModel} T
- * @typedef {spf_AugmentModel<T>} spf_GroupByClauseProperty
+/** AggrAvgCallback
+ * @typedef {import('./util.js').AggrAvgCallback} AggrAvgCallback 
+ */
+
+/** AggrMaxCallback
+ * @typedef {import('./util.js').AggrMaxCallback} AggrMaxCallback 
+ */
+
+/** AggrMinCallback
+ * @typedef {import('./util.js').AggrMinCallback} AggrMinCallback 
+ */
+
+/** AggrSumCallback
+ * @typedef {import('./util.js').AggrSumCallback} AggrSumCallback 
+ */
+
+/** SpfGroupByCallbackModel
+ * Model parameter that is passed into the callback function for `.groupBy`.  
+ * 
+ * __NOTE: This is a superficial type to help augment the AliasModel of the context so Users can expect different results in TypeScript.__  
+ * __Real return value: {@link GroupByClauseProperty}__
+ * @template {AbstractModel} TTableModel
+ * @typedef {AugmentAllValues<TTableModel>} SpfGroupByCallbackModel
  */
 
 /******************************************************************
  *                            SORT BY                             *
  ******************************************************************/
 
-/**
+/** SortByClauseProperty
  * @typedef {Column & { direction: "ASC"|"DESC"}} SortByClauseProperty
  */
 
-/**
+/** SortByCallbackModelProp
  * @typedef {object} SortByCallbackModelProp
  * @prop {() => SortByClauseProperty} asc
  * @prop {() => SortByClauseProperty} desc
  */
 
-/**
+/** SortByCallbackModel
  * @template {AbstractModel} T
  * @typedef {AugmentModel<T, SortByCallbackModelProp>} SortByCallbackModel
  */
@@ -375,7 +511,7 @@ export class MyORMContext {
  *                            SERIALIZATION                            *
  ***********************************************************************/
 
-/**
+/** SerializationQueryHandlerData
  * Data passed for the scope of the custom adapter to help serialize a query command.
  * @typedef {object} SerializationQueryHandlerData
  * @prop {WhereClausePropertyArray=} where
@@ -670,6 +806,6 @@ function adapter(config) {
 /** @type {MyORMContext<TestModel>} */
 const ctx = new MyORMContext(adapter({}), "Blah");
 ctx.sortBy(m => m.foo.a.asc());
-ctx.groupBy(m => m.foo.a.total()).select().then(results => {
-    results.
+ctx.groupBy((m, aggr) => [aggr.count(m.foo.a), m.x]).select().then(results => {
+    results[0]
 });
