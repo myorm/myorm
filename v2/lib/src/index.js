@@ -16,19 +16,51 @@ import { Where, WhereBuilder } from "./where-builder.js";
  */
 
 /**
+ * @typedef {object} ContextState
+ * @prop {SelectClauseProperty[]=} select
+ * @prop {FromClauseProperty[]=} from
+ * @prop {GroupByClauseProperty[]=} groupBy
+ * @prop {SortByClauseProperty[]=} sortBy
+ * @prop {number=} limit
+ * @prop {number=} offset
+ * @prop {WhereBuilder=} where
+ * @prop {boolean=} explicit
+ * @prop {Record<string, Set<DescribedSchema>>} relationships
+ */
+
+/**
  * @template {AbstractModel} TTableModel
  * @template {AbstractModel} [TAliasModel=TTableModel]
  */
 export class MyORMContext {
     /** @type {string} */ #table;
     /** @type {Set<DescribedSchema>} */ #schema;
-    #state;
-    /** @type {MyORMAdapter<TAliasModel>} */ #adapter;
+    /** @type {ContextState} */ #state;
+    /** @type {MyORMAdapter<any>} */ #adapter;
     /** @type {MyORMOptions} */ #options;
     /** @type {Promise} */ #promise;
 
-    constructor(adapter, table, tableOptions) {
+    /**
+     * 
+     * @param {MyORMAdapter<any>} adapter 
+     * @param {string} table 
+     * @param {MyORMOptions=} tableOptions 
+     */
+    constructor(adapter, table, tableOptions={}) {
+        this.#adapter = adapter;
+        this.#table = table;
+        this.#options = {
+            allowTruncation: false,
+            allowUpdateAll: false,
+            ...tableOptions
+        };
+        this.#state = {
+            relationships: {}
+        }
 
+        this.#promise = this.#describe(table).then(schema => {
+            this.#schema = schema;
+        })
     }
 
     /**
@@ -99,7 +131,7 @@ export class MyORMContext {
     }
 
     take(n) {
-        return this.#transfer(ctx => {
+        return this.#duplicate(ctx => {
             ctx.#state.limit = n;
         });
     }
@@ -107,7 +139,7 @@ export class MyORMContext {
     limit = this.take;
 
     skip(n) {
-        return this.#transfer(ctx => {
+        return this.#duplicate(ctx => {
             ctx.#state.offset = n;
         });
     }
@@ -120,7 +152,7 @@ export class MyORMContext {
      * @returns 
      */
     where(modelCallback) {
-        return this.#transfer(ctx => {
+        return this.#duplicate(ctx => {
             const newProxy = (table = this.#table) => new Proxy({}, {
                 get: (t,p,r) => {
                     if (typeof (p) === 'symbol') throw new MyORMInternalError();
@@ -141,7 +173,7 @@ export class MyORMContext {
      * @returns {MyORMContext<TTableModel, TAliasModel>}
      */
     sortBy(modelCallback) {
-        return this.#transfer(ctx => {
+        return this.#duplicate(ctx => {
             const newProxy = (table = this.#table) => new Proxy({}, {
                 get: (t,p,r) => {
                     if (typeof (p) === 'symbol') throw new MyORMInternalError();
@@ -173,7 +205,7 @@ export class MyORMContext {
      * @returns {MyORMContext<ReconstructAbstractModel<TTableModel, TGroupedColumns>, ReconstructAbstractModel<TTableModel, TGroupedColumns>>} A new context with the all previously configured clauses and the updated groupings.
      */
     groupBy(modelCallback) {
-        return this.#transfer(ctx => {
+        return this.#duplicate(ctx => {
             const newProxy = (table = this.#table) => new Proxy({}, {
                 get: (t, p, r) => {
                     if (typeof(p) === 'symbol') throw new MyORMInternalError(); // @TODO not an internal error, this would be the fault of the User for a reference like `m[Symbol()]`
@@ -198,7 +230,9 @@ export class MyORMContext {
                     const [table, column] = col.split('_');
                     return {
                         table,
-                        column
+                        column,
+                        alias: col.replace('_', '<|'),
+                        aggregate: aggr
                     }
                 };
             };
@@ -212,7 +246,7 @@ export class MyORMContext {
                 total: getGroupedColProp("TOTAL")
             });
 
-            ctx.#state.groupBy = Array.isArray(groups) ? groups : [groups];
+            ctx.#state.groupBy = /** @type {GroupByClauseProperty[]} */ (/** @type {unknown} */ (Array.isArray(groups) ? groups : [groups]));
         });
     }
 
@@ -231,12 +265,16 @@ export class MyORMContext {
     columns = this.choose;
 
     /**
-     * @template {AbstractModel} TNewAliasModel
-     * @param {(ctx: MyORMContext<TTableModel, TNewAliasModel>) => void} callback 
+     * Duplicates this context which would expect to have further updates using the `callback` argument.  
+     * 
+     * Use this function to maintain a desired state between each context.
+     * @param {(ctx: MyORMContext<any, any>) => void} callback 
+     * Callback that is used to further configure state after the duplication has occurred.
      * @returns {MyORMContext<any, any>}
+     * A new context with the altered state.
      */
-    #transfer(callback) {
-        /** @type {MyORMContext<TTableModel, TNewAliasModel>} */
+    #duplicate(callback) {
+        /** @type {MyORMContext<any, any>} */
         const ctx = new MyORMContext(this.#adapter, this.#table, this.#options);
         ctx.#promise = this.#promise.then(() => {
             ctx.#state = {...this.#state};
@@ -248,25 +286,46 @@ export class MyORMContext {
         return ctx;
     }
 
+    /**
+     * Checks to see if `table` is a relationship within this context.
+     * @param {string} table 
+     * Table to check to see if it is a relationship.
+     * @returns {boolean}
+     * True if the table associated with this context has a relationship with `table`, otherwise false.
+     */
     #isRelationship(table) {
         return table in this.#state.relationships;
     }
+
+    hasOne(modelCallback) {
+
+    }
+
+    hasMany(modelCallback) {
+
+    }
+
+    include(modelCallback) {
+
+    }
+
+    join = this.include;
 }
 
-/**
+/** MaybeArray
  * @template T
  * @typedef {T|T[]} MaybeArray
  */
 
-/**
+/** SQLPrimitive
  * @typedef {boolean|string|number|Date|bigint} SQLPrimitive
  */
 
-/** 
+/** ExecutionArgument
  * @typedef {SQLPrimitive|{ value: SQLPrimitive, varName: string }} ExecutionArgument
  */
 
-/**
+/** DescribedSchema
  * Object representing the schema of a column in a table.
  * @typedef {object} DescribedSchema
  * @prop {string} table
@@ -281,18 +340,18 @@ export class MyORMContext {
  * Value that should be assigned if the column was not explicitly specified in the insert.
  */
 
-/**
+/** Column
  * @typedef {object} Column
  * @prop {string} table
  * @prop {string} column
  * @prop {string} alias
  */
 
-/**
+/** SelectClauseProperty
  * @typedef {Column} SelectClauseProperty
  */
 
-/**
+/** FromClauseProperty
  * @typedef {object} FromClauseProperty
  * @prop {string} table
  * @prop {string} alias
@@ -300,7 +359,7 @@ export class MyORMContext {
  * @prop {SelectClauseProperty} targetTableKey
  */
 
-/**
+/** AugmentModel
  * Augments the given type, `TTransformingModel` so that all of its non `AbstractModel` property types 
  * (including nested properties within `AbstractModel` type properties) instead have the type, `TFinalType`.  
  * @template {AbstractModel} TTransformingModel
@@ -310,9 +369,7 @@ export class MyORMContext {
  * @typedef {{[K in keyof TTransformingModel]-?: TTransformingModel[K] extends (infer U extends AbstractModel)[]|undefined ? AugmentModel<U, TFinalType> : TTransformingModel[K] extends (AbstractModel|undefined) ? AugmentModel<TTransformingModel[K], TFinalType> : TFinalType}} AugmentModel
  */
 
-/*****************************************************************
- *                            STRINGS                            *
- *****************************************************************/
+/*****************************STRINGS******************************/
 
 /** Contains
  * Checks if the given string type, `K`, contains `TContainer`, and if so, returns `K`, otherwise it returns `never`.
@@ -355,9 +412,7 @@ export class MyORMContext {
  * @typedef {K extends `${infer B}_${infer A}` ? A : never} Cdr
  */
 
-/*********************************************************************
- *                            SUPERFICIAL                            *
- *********************************************************************/
+/*****************************SUPERFICIAL******************************/
 
 // Superficial types are used to help TypeScript create a much more intuitive type in the end.
 // Since MyORM is constructed using Proxies, many of the return types are only ever used internally. This may make development harder,
@@ -404,9 +459,7 @@ export class MyORMContext {
  * @typedef {{[K in keyof T as StartsWith<K, "$">]: number} & ReconstructObject<TOriginal, keyof T>} ReconstructAbstractModel
  */
 
-/***************************************************************
- *                            WHERE                            *
- ***************************************************************/
+/*****************************WHERE******************************/
 
 /** WhereChain
  * @typedef {"WHERE"|"WHERE NOT"|"AND"|"AND NOT"|"OR"|"OR NOT"} WhereChain 
@@ -428,9 +481,7 @@ export class MyORMContext {
  * @prop {WhereCondition} condition
  */
 
-/******************************************************************
- *                            GROUP BY                            *
- ******************************************************************/
+/*****************************GROUP BY******************************/
 
 /** GroupByClauseProperty
  * @typedef {Column & { aggregate?: "AVG"|"COUNT"|"MIN"|"MAX"|"SUM"|"TOTAL" }} GroupByClauseProperty
@@ -488,9 +539,7 @@ export class MyORMContext {
  * @typedef {AugmentAllValues<TTableModel>} SpfGroupByCallbackModel
  */
 
-/******************************************************************
- *                            SORT BY                             *
- ******************************************************************/
+/*****************************SORT BY******************************/
 
 /** SortByClauseProperty
  * @typedef {Column & { direction: "ASC"|"DESC"}} SortByClauseProperty
@@ -507,9 +556,7 @@ export class MyORMContext {
  * @typedef {AugmentModel<T, SortByCallbackModelProp>} SortByCallbackModel
  */
 
-/***********************************************************************
- *                            SERIALIZATION                            *
- ***********************************************************************/
+/*****************************SERIALIZATION******************************/
 
 /** SerializationQueryHandlerData
  * Data passed for the scope of the custom adapter to help serialize a query command.
@@ -578,9 +625,7 @@ export class MyORMContext {
  * Handles serialization of a describe command and its arguments so it appropriately works for the given database connector.
  */
 
-/*******************************************************************
- *                            EXECUTION                            *
- *******************************************************************/
+/*****************************EXECUTION******************************/
 
 /**
  * @typedef {object} ExecutionHandlers
@@ -606,10 +651,7 @@ export class MyORMContext {
  *  where each field points to an object representing the schema of the table described.
  */
 
-
-/*****************************************************************
- *                            ADAPTER                            *
- *****************************************************************/
+/*****************************ADAPTER******************************/
 
 /**
  * @typedef {object} AdapterScope
@@ -640,7 +682,7 @@ export class MyORMContext {
  */
 
 /**
- * @template {AbstractModel} T
+ * @template T
  * @typedef {object} MyORMAdapter
  * @prop {AdapterOptions} options
  * @prop {AdapterSyntax} syntax
@@ -698,8 +740,9 @@ function handleWhere(conditions, table="") {
     };
 }
 
+// MySQL adapter @TODO move to own repo.
 
-/** @type {InitializeAdapterCallback<{}>} */
+/** @type {InitializeAdapterCallback<{ a: string }>} */
 function adapter(config) {
     return {
         options: {
@@ -804,7 +847,7 @@ function adapter(config) {
  */
 
 /** @type {MyORMContext<TestModel>} */
-const ctx = new MyORMContext(adapter({}), "Blah");
+const ctx = new MyORMContext(adapter({ a: "" }), "Blah");
 ctx.sortBy(m => m.foo.a.asc());
 ctx.groupBy((m, aggr) => [aggr.count(m.foo.a), m.x]).select().then(results => {
     results[0]
