@@ -1,231 +1,500 @@
 //@ts-check
 
-/** @template T @typedef {Promise<T> | T} MaybePromise */
 
-/**
- * Information about a relationship between two tables.
- * @typedef {object} Relationship
- * @prop {number} disposition Numerical positioning of the inclusion, this is to maintain the order of how each table is joined.
- * @prop {string} thisTable The left side argument of a left join.
- * @prop {string} thatTable The right side argument of a left join.
- * @prop {string} primaryKey The key being used in the join clause for `thisTable`.
- * @prop {string} foreignKey The key being used in the join clause for `thatTable`.
- * @prop {"1:1"|"1:n"} type Type of relationship configured using `.hasOne`, `.hasMany`, `.andThatHasOne`, or `.andThatHasMany`.
- * @prop {boolean=} included True if the relationship is included in this state and to be used in any queries on the context.
- * @prop {{[key: string]: SchemaField}} schema Schema defining the joining table, `thatTable`.
- * @prop {string} alias Alias that the table should be named.
- */
-
-/**
- * Information stored representing the state the context is in.
- * @template T Model representing the raw table in SQL.
- * @template U Model representing the table how it is worked on in `MyORM`.
- * @typedef {object} State
- * @prop {{[key: string|symbol]: Relationship}} relationships Relationships configured using configuration statements.
- * @prop {import('./where-builder.js').WhereBuilder=} where Where builder built using `.where()`.
- * @prop {string[]=} groupBy Array of strings representing selects built from `.groupBy()`.
- * @prop {SortByKeyConfig[]=} sortBy Array of `SortByKeyConfig` objects representing sorting configurations built from `.sortBy()`.
- * @prop {(string|number)=} limit Number representing the number of records to return.
- * @prop {(string|number)=} offset Number representing the number of records to skip before grabbing records.
- * @prop {((t: U) => T)=} mapBack Mapping function used to map aliased records to the raw table models.
- * @prop {((t: T) => U)=} mapForward Mapping function used to map raw table records to the aliased version.
- * @prop {((t: T) => MaybePromise<T[keyof OnlyNonAbstractModels<T>]>)=} identityCallback Function used to auto-assign values to primary keys. (if the primary key has an `auto_increment` attribute, then this will never exist)
- */
-
-/**
- * Contextual information on the command that is being worked on.
- * @typedef {object} CommandContext
- * @prop {string} mainTableName
- * Table name, as it appears in the database, that the context represents
- * @prop {string=} primaryKey
- * Key identified as the primary key for the table.
- * @prop {boolean} isIdentityKey
- * Key that has an "AUTO_INCREMENT" attribute applied to it.
- * @prop {boolean=} hasOneToOne
- * True if the command has a one-to-one relationship included on it.
- * @prop {boolean=} hasOneToMany
- * True if the command has a one-to-many relationship included on it.
- * @prop {boolean=} isCount
- * True if the command is a COUNT command.
- * @prop {boolean=} isExplicit
- * True if the command is an explicit transaction. (Utilizes the WHERE clause)
- */
-
-/** 
- * Data required to execute a command.
- * @typedef {{ cmd: string, args: any[] }} CommandData 
- */
-
-/** 
- * Built data for executing a query command.
- * @typedef {object} QueryData 
- * @prop {string[]} selects
- * All columns being queried.
- * @prop {string[]} from
- * All tables where columns are being queried from.
- * @prop {string=} where
- * Built command in the format of `{column} {condition} ? {chain}[...]`.
- * @prop {any[]=} whereArgs
- * All arguments used in the WHERE clause.
- * @prop {string[]=} groupBy
- * All columns that are specified to group as.
- * @prop {SortByKeyConfig[]=} orderBy
- * All columns that are specified order on.
- * @prop {(string|number)=} limit
- * Number representing the limit of how many records to query.
- * @prop {(string|number)=} offset
- * Number representing the offset of how many records to query.
- */
-
-/** 
- * Built data for executing an insert command.
- * @typedef {object} InsertData
- * @prop {string[]} columns
- * Array of strings representing all columns being inserted of.
- * @prop {string[][]} values
- * Array of array of strings, where each array represents a parallel array of respective values with the `columns` array for a single record.
- * @prop {string=} where
- * Built command in the format of `{column} {condition} ? {chain}[...]`.
- * @prop {any[]=} whereArgs
- * All arguments used in the WHERE clause.
- */
-
-/** 
- * Built data for executing an update command.
- * @typedef {object} UpdateData 
- * @prop {string[]} columns
- * Array of strings representing all columns being updated.
- * @prop {any[]=} records
- * Array of records being updated.
- * @prop {string=} where
- * WHERE clause string to send in.
- * @prop {any[]=} whereArgs
- * All arguments used in the WHERE clause.
- */
-
-/** 
- * Built data for serializing a delete command, that is, the command should delete one or more records from the table.
- * @typedef {object} DeleteData
- * @prop {any[]=} records
- * Array of records being updated.
- * @prop {string=} where
- * WHERE clause string to send in.
- * @prop {any[]=} whereArgs
- * All arguments used in the WHERE clause.
- */
-
-/**
- * Built data for serializing a `DESCRIBE` command, that is, the command should get essential information about the table.
- * @typedef {object} DescribeData
- * @prop {string} table
- * Table being described.
- */
-
-/**
- * Built data for serializing aggregate columns 
- * @typedef {object} AggregateData
- * @prop {(col: string) => string} transformColForParamUse
- * Function to transform the column from the adapter's aggregate function into an appropriate column to add to the MySQL function call portion.
- * @prop {(col: string) => string} transformColForAliasUse
- * Function to transform the column from the adapter's aggregate function into an appropriate column to add to the alias portion.
- */
-
-/**
- * Various functions for assisting with serialization of commands.
- * @typedef {object} SerializationConfig
- * @prop {(data: QueryData) => CommandData} forQuery 
- * Defines behavior for serializing constructed data from MyORM into a syntactically correct string for querying the corresponding database.
- * @prop {(data: InsertData) => CommandData} forInsert 
- * Defines behavior for serializing constructed data from MyORM into a syntactically correct string for inserting into the corresponding database.
- * @prop {(data: UpdateData) => CommandData} forUpdate
- * Defines behavior for serializing constructed data from MyORM into a syntactically correct string for updating the corresponding database.
- * @prop {(data: DeleteData) => CommandData} forDelete
- * Defines behavior for serializing constructed data from MyORM into a syntactically correct string for deleting from the corresponding database.
- * @prop {((data: DescribeData) => CommandData)} forDescribe
- * Defines behavior for serializing constructed data from MyORM into a syntactically correct string for describing a table in the corresponding database.
- * @prop {(() => CommandData)} forTruncate
- * Defines behavior for serializing constructed data from MyORM into a syntactically correct string for truncating a table in the corresponding database.
- * @prop {((data: InsertData) => CommandData)=} forUpsert
- * Defines behavior for serializing constructed data from MyORM into a syntactically correct string for upserting into the corresponding database.
- * @prop {((data: AggregateData) => Aggregates)} forAggregates
- * Defines behavior for serializing constructed data from MyORM into a syntactically correct string for usage of SQL aggregate functions.
- * 
- */
-
-/**
- * Object representing all of the tools that may be used during serialization.
- * @template {AbstractModel} TTableModel
- * @typedef {object} OnSerializationTools
- * @prop {{ new(msg: import('./exceptions.js').AdapterErrorType): import('./exceptions.js').MyORMAdapterError }} MyORMError
- * Used to throw a MyORMAdapterError whenever something appears wrong.
- * @prop {(primaryKey: keyof TTableModel, mainTableName: string, relationships: any, options: AdapterOptions) => import('./where-builder.js').WhereBuilder<TTableModel>} Where
- * Can be used to manually build a WHERE clause.
- * @prop {any} Schema
- * Schema that was queried about the table.
- * @prop {any} Relationships
- * Relationships that were configured and queried on the table.
- */
-
-/**
- * @typedef {object} AdapterOptions
- * @prop {boolean=} eventHandling
- * @prop {boolean=} allowTruncation
- * @prop {boolean=} allowUpdateOnAll
- * @prop {string=} escapeCharStart
- * @prop {string=} escapeCharEnd
- * @prop {boolean=} useNumberedParameters
- */
-
-/** 
- * All functions and configurations required for a custom `MyORM` adapter.
- * @template {AbstractModel} TTableModel
- * @typedef {object} MyORMAdapter 
- * @prop {AdapterOptions} options
- * Additional options to disable/enable behavior throughout MyORM specific for the Adapter.
- * @prop {any} connection
- * The connection used within the context
- * @prop {(cmd: string, args: any[]|undefined) => Promise<TTableModel[]>} handleQuery 
- * Defines the behavior of how a query transaction is executed and passes the correct data back to MyORM.  
- * Should return an array of `TTableModel` objects. If no records exist, then an empty array should be returned.
- * @prop {(cmd: string, args: any[]|undefined) => Promise<number>} handleCount
- * Defines the behavior of how a query transaction for count is executed and passes the correct data back to MyORM.  
- * Should return a number, reflecting the COUNT(*) of the table given the clauses provided.
- * @prop {(cmd: string, args: any[]|undefined) => Promise<number[]>} handleInsert 
- * Defines the behavior of how an insert transaction is executed and passes the correct data back to MyORM. Should return an array of numbers for all insert ids.  
- * Should return an array of numbers, where the length of the array is equal to the number of records inserted. 
- * Each of these numbers will be the auto_increment primary key for each record.  
- * If not auto_increment primary key exists on the Table, then the return value does not matter.
- * @prop {(cmd: string, args: any[]|undefined) => Promise<number>} handleUpdate 
- * Defines the behavior of how an update transaction is executed and passes the correct data back to MyORM.  
- * Should return the number of affected rows, that is, the number of rows that were updated.
- * @prop {(cmd: string, args: any[]|undefined) => Promise<number>} handleDelete 
- * Defines the behavior of how a delete transaction is executed and passes the correct data back to MyORM.  
- * Should return the number of affected rows, that is, the number of rows that were deleted.
- * @prop {((cmd: string, args: any[]|undefined) => Promise<SchemaField[]>)} handleDescribe 
- * Defines the behavior of how a describe transaction is executed and passes the correct data back to MyORM.  
- * Should return an array of `SchemaField` objects that properly describe each column on the table. `Alias` is assigned internally.   
- * __NOTE: The field will be renamed to a sanitized format of itself with the table prepended to it.__
- * @prop {((cmd: string, args: any[]|undefined) => Promise<TTableModel[]>)=} handleUpsert 
- * Defines the behavior of how a replace transaction is executed and passes the correct data back to MyORM.  
- * Should return an array of `TTableModel` objects that were inserted/updated.
- * @prop {(tools: OnSerializationTools<TTableModel>, commandContext: CommandContext) => SerializationConfig} onSerialization 
- * Defines how certain transactions will be serialized into their correct format to be passed to the corresponding database.
- */
-
-/**
- * Model representing a schema returned from `describe`.
- * @typedef {{Field: string, Type: string, Null: string, Key: string, Default: string, Extra: string, Alias: string}} SchemaField
- */
-
-/**
- * Transforms an object's undefinable keys into optional keys.
+/** MaybeArray
  * @template T
- * @typedef {{[K in keyof T as undefined extends T[K] ? never : K]: UndefinedAsOptional<T[K]>} & {[K in keyof T as undefined extends T[K] ? K : never]?: T[K]}} UndefinedAsOptional
+ * @typedef {T|T[]} MaybeArray
+ */
+
+/** SQLPrimitive
+ * @typedef {boolean|string|number|Date|bigint} SQLPrimitive
+ */
+
+/** ExecutionArgument
+ * @typedef {SQLPrimitive|{ value: SQLPrimitive, varName: string }} ExecutionArgument
+ */
+
+/** Column
+ * @typedef {object} Column
+ * @prop {string} table
+ * @prop {string} column
+ * @prop {string} alias
+ */
+
+/** FromClauseProperty
+ * @typedef {object} FromClauseProperty
+ * @prop {string} table
+ * @prop {string} alias
+ * @prop {SelectClauseProperty} sourceTableKey
+ * @prop {SelectClauseProperty} targetTableKey
+ */
+
+/** AugmentModel
+ * Augments the given type, `TTransformingModel` so that all of its non `AbstractModel` property types
+ * (including nested properties within `AbstractModel` type properties) instead have the type, `TFinalType`.
+ * @template {AbstractModel} TTransformingModel
+ * Type to recurse through to augment.
+ * @template TFinalType
+ * Type to augment SQL primitive types (non `AbstractModel` types) to.
+ * @typedef {{[K in keyof TTransformingModel]-?: TTransformingModel[K] extends (infer U extends AbstractModel)[]|undefined ? AugmentModel<U, TFinalType> : TTransformingModel[K] extends (AbstractModel|undefined) ? AugmentModel<TTransformingModel[K], TFinalType> : TFinalType}} AugmentModel
+ */
+
+/*****************************STRINGS******************************/
+
+/** Contains
+ * Checks if the given string type, `K`, contains `TContainer`, and if so, returns `K`, otherwise it returns `never`.
+ * @template {string|symbol|number} K
+ * @template {string} TContainer
+ * @typedef {K extends `${infer A}${TContainer}${infer B}` ? K : never} Contains
+ */
+
+/** StartsWith
+ * Checks if the given string type, `K`, begins with `TStarter`, and if so, returns `K`, otherwise it returns `never`.
+ * @template {string|symbol|number} K
+ * @template {string} TStarter
+ * @typedef {K extends `${TStarter}${infer A}` ? K : never} StartsWith
+ */
+
+/** Join
+ * Recursively joins all nested objects keys to get a union of all combinations of strings with each key.
+ * @template {AbstractModel} T
+ * @template {keyof T & string} [TKey=keyof T & string]
+ * @typedef {undefined extends T
+ *      ? never
+ *      : T[TKey] extends (infer R extends AbstractModel)[]|undefined
+ *          ? T extends T[TKey]
+ *              ? never
+ *              : `${TKey}_${Join<R>}`
+ *          : T[TKey] extends AbstractModel|undefined
+ *              ? `${TKey}_${Join<T[TKey]>}`
+ *              : never} Join
+ */
+
+/** Car
+ * Grabs the first element in the String, separated by "_".
+ * @template {string|symbol|number} K
+ * @typedef {K extends `${infer A}_${infer B}` ? A : K} Car
+ */
+
+/** Cdr
+ * Grabs the remaining elements in the String, separated by "_".
+ * @template {string|symbol|number} K
+ * @typedef {K extends `${infer B}_${infer A}` ? A : never} Cdr
+ */
+
+/*****************************SUPERFICIAL******************************/
+
+// Superficial types are used to help TypeScript create a much more intuitive type in the end.
+// Since MyORM is constructed using Proxies, many of the return types are only ever used internally. This may make development harder,
+// but it makes it where we can influence the typing in whatever direction we want. With this power, the final results that the User should only see
+// would be more accurate than if we were to not use superficial types.
+
+// All types that use the following types should be prepended with 'Spf' for better communication that it is a Superficial type.
+//   the comment describing the type should describe what is actually returned.
+
+/** AugmentAllValues  
+ * Augments the type, `T`, so that all nested properties have string values reflecting their own key and their parent(s).  
+ * (e.g., { Foo: { Bar: "" } } becomes { Foo: { Bar: "Foo_Bar" } })
+ * @template {AbstractModel} T
+ * @template {string} [TPre=``]
+ * @template {string} [TSeparator=`_`]
+ * @typedef {{[K in keyof T]-?: T[K] extends (infer R extends AbstractModel)[]|undefined 
+ *   ? AugmentAllValues<R, `${TPre}${K & string}${TSeparator}`> 
+ *   : T[K] extends AbstractModel|undefined 
+ *     ? AugmentAllValues<T[K], `${TPre}${K & string}${TSeparator}`> 
+ *     : `${TPre}${K & string}`}} AugmentAllValues
+ */
+
+/** AugmentAllKeys  
+ * Augments the type, `T`, so that all nested properties have keys reflecting their own key and their parent(s).  
+ * (e.g., { Foo: { Bar: "" } } becomes { Foo_Bar: "" })
+ * @template {AbstractModel} T
+ * @template {string} [TPre=``]
+ * @template {string} [TSeparator=`_`]
+ * @typedef {{[K in keyof T as T[K] extends (infer R extends AbstractModel)[]|undefined 
+ *   ? keyof AugmentAllKeys<R, `${TPre}${K & string}${TSeparator}`> 
+ *   : T[K] extends AbstractModel|undefined 
+ *     ? keyof AugmentAllKeys<T[K], `${TPre}${K & string}${TSeparator}`> 
+ *     : `${TPre}${K & string}`]-?: T[K]}} AugmentAllKeys
+ */
+
+/** ReconstructObject  
+ * 
+ * Transforms a string or union thereof that resembles some finitely nested properties inside of `TOriginal` model 
+ * into its actual representation as shown in `TOriginal`. 
+ * @template {AbstractModel} TOriginal
+ * @template {string|symbol|number} TSerializedKey
+ * @typedef {Contains<TSerializedKey, "_"> extends never 
+ *   ? TSerializedKey extends keyof TOriginal 
+ *     ? {[K in TSerializedKey]: TOriginal[TSerializedKey]} 
+ *     : never
+ *   : {[K in Car<TSerializedKey> as K extends keyof TOriginal ? K : never]: K extends keyof TOriginal 
+ *     ? TOriginal[K] extends (infer R extends AbstractModel)[]|undefined
+ *       ? ReconstructObject<R, Cdr<TSerializedKey>> 
+ *       : TOriginal[K] extends AbstractModel|undefined
+ *         ? ReconstructObject<Exclude<TOriginal[K], undefined>, Cdr<TSerializedKey>> 
+ *         : TOriginal[K]
+ *     : never} 
+ * } ReconstructObject
+ */
+
+/** ReconstructAbstractModel  
+ * 
+ * Transforms an object, `T`, with non-object value properties where each property key can be mapped back to `TOriginal` 
+ * using {@link ReconstructValue<TOriginal, keyof T>}
+ * @template {AbstractModel} TOriginal
+ * @template {AbstractModel} T
+ * @typedef {{[K in keyof T as StartsWith<K, "$">]: number} & ReconstructObject<TOriginal, keyof T>} ReconstructAbstractModel
+ */
+
+/*****************************RELATIONSHIPS******************************/
+
+/** DescribedSchema  
+ * Object representing the schema of a column in a table.
+ * @typedef {object} DescribedSchema
+ * @prop {string} table
+ * The raw name of the table this field belongs to.
+ * @prop {string} field
+ * The raw name of the field as it is displayed in the database's table.
+ * @prop {string} alias
+ * The given alias for MyORM to use. (this is handled internally.)
+ * @prop {boolean} isPrimary
+ * True if the column is a primary key.
+ * @prop {boolean} isIdentity
+ * True if the column is an identity key. (automatically increments)
+ * @prop {SQLPrimitive} defaultValue
+ * Value that should be assigned if the column was not explicitly specified in the insert.
+ */
+
+/** Relationship  
+ * 
+ * 
+ * @typedef {object} Relationship
+ * @prop {"1:1"|"1:n"} type
+ * @prop {Set<DescribedSchema>} schema
+ * @prop {Relationship=} relationship
+ */
+
+/** IncludeClauseProperty  
+ * 
+ * Object to carry data tied to various information about a column being selected.
+ * @typedef {FromClauseProperty} IncludeClauseProperty
+ */
+
+/** IncludedColumnsModel  
+ * 
+ * Model representing included columns on the table.
+ * @template {AbstractModel} TTableModel
+ * @typedef {{[K in keyof import("./types.js").OnlyAbstractModelTypes<TTableModel>]: IncludeClauseProperty}} IncludedColumnsModel
+ */
+
+/** ThenIncludeCallback  
+ * 
+ * 
+ * @template {AbstractModel} TTableModel
+ * @template {string|symbol|number} TLastKey
+ * @typedef {{ thenInclude: (model: IncludeCallback<TTableModel, TLastKey>) => ThenIncludeCallback<TTableModel, TLastKey> }} ThenIncludeCallback
+ */
+
+/** IncludeCallback  
+ * 
+ * 
+ * @template {AbstractModel} TTableModel
+ * @template {string|symbol|number} TLastKey
+ * @typedef {(model: {[K in keyof import('./types.js').OnlyAbstractModelTypes<TTableModel>]: ThenIncludeCallback<import('./types.js').OnlyAbstractModelTypes<TTableModel>[K], K>}) => void} IncludeCallback
+ */
+
+/*****************************WHERE******************************/
+
+/** WhereChain  
+ * @typedef {"WHERE"|"WHERE NOT"|"AND"|"AND NOT"|"OR"|"OR NOT"} WhereChain 
+ */
+
+/** WhereCondition  
+ * @typedef {"="|"<>"|"<"|">"|"<="|">="|"IN"|"LIKE"} WhereCondition 
+ */
+
+/** WhereClausePropertyArray  
+ * 
+ * @typedef {[WhereClauseProperty, ...(WhereClauseProperty|WhereClausePropertyArray)[]]} WhereClausePropertyArray 
+ */
+
+/** WhereClauseProperty  
+ * 
+ * @typedef {object} WhereClauseProperty
+ * @prop {string} property
+ * @prop {WhereChain} chain
+ * @prop {MaybeArray<SQLPrimitive>} value
+ * @prop {WhereCondition} condition
+ */
+
+/*****************************SELECT******************************/
+
+/** SelectClauseProperty  
+ * Object to carry data tied to various information about a column being selected.
+ * @typedef {Column} SelectClauseProperty
+ */
+
+/** SelectedColumnsModel  
+ * 
+ * Model representing selected columns.
+ * @template {AbstractModel} TTableModel
+ * @typedef {{[K in keyof Partial<TTableModel> as Join<TTableModel, K & string>]: SelectClauseProperty}} SelectedColumnsModel
+ */
+
+/** SpfSelectCallbackModel  
+ * 
+ * Model parameter that is passed into the callback function for `.select`.  
+ * 
+ * __NOTE: This is a superficial type to help augment the AliasModel of the context so Users can expect different results in TypeScript.__  
+ * __Real return value: {@link SelectClauseProperty}__
+ * @template {AbstractModel} TTableModel
+ * @typedef {AugmentAllValues<TTableModel>} SpfSelectCallbackModel
+ */
+
+/*****************************GROUP BY******************************/
+
+/** GroupByClauseProperty  
+ * 
+ * Object to carry data tied to various information about a column being grouped by.
+ * @typedef {Column & { aggregate?: "AVG"|"COUNT"|"MIN"|"MAX"|"SUM"|"TOTAL" }} GroupByClauseProperty
+ */
+
+/** GroupedColumnsModel  
+ * 
+ * Model representing grouped columns, including aggregates.
+ * @template {AbstractModel} TTableModel
+ * @typedef {{[K in keyof Partial<TTableModel>]: GroupByClauseProperty}
+ *  & Partial<{ $total: GroupByClauseProperty }>
+ *  & Partial<{[K in keyof TTableModel as `$count_${Join<TTableModel, K & string>}`]: GroupByClauseProperty}>
+ *  & Partial<{[K in keyof TTableModel as `$avg_${Join<TTableModel, K & string>}`]: GroupByClauseProperty}>
+ *  & Partial<{[K in keyof TTableModel as `$max_${Join<TTableModel, K & string>}`]: GroupByClauseProperty}>
+ *  & Partial<{[K in keyof TTableModel as `$min_${Join<TTableModel, K & string>}`]: GroupByClauseProperty}>
+ *  & Partial<{[K in keyof TTableModel as `$sum_${Join<TTableModel, K & string>}`]: GroupByClauseProperty}>} GroupedColumnsModel
+ */
+
+/** Aggregates
+ * Object representing the `aggregate` object passed into the `.groupBy` callback function.
+ * @typedef {Object} Aggregates
+ * @prop {() => "$total"} total Gets the total count of all records from the query.
+ * @prop {AggrCountCallback} count Gets the count of distinct rows for that field.
+ * @prop {AggrAvgCallback} avg Gets the average amount across all rows for that field.
+ * @prop {AggrMaxCallback} max Gets the maximum amount between all rows for that field.
+ * @prop {AggrMinCallback} min Gets the minimum amount between all rows for that field.
+ * @prop {AggrSumCallback} sum Gets the total sum amount across all rows for that field.
+ */
+
+/** AggrCountCallback
+ * @typedef {import('./util.js').AggrCountCallback} AggrCountCallback 
+ */
+
+/** AggrAvgCallback
+ * @typedef {import('./util.js').AggrAvgCallback} AggrAvgCallback 
+ */
+
+/** AggrMaxCallback
+ * @typedef {import('./util.js').AggrMaxCallback} AggrMaxCallback 
+ */
+
+/** AggrMinCallback
+ * @typedef {import('./util.js').AggrMinCallback} AggrMinCallback 
+ */
+
+/** AggrSumCallback
+ * @typedef {import('./util.js').AggrSumCallback} AggrSumCallback 
+ */
+
+/** SpfGroupByCallbackModel
+ * Model parameter that is passed into the callback function for `.groupBy`.  
+ * 
+ * __NOTE: This is a superficial type to help augment the AliasModel of the context so Users can expect different results in TypeScript.__  
+ * __Real return value: {@link GroupByClauseProperty}__
+ * @template {AbstractModel} TTableModel
+ * @typedef {AugmentAllValues<TTableModel>} SpfGroupByCallbackModel
+ */
+
+/*****************************SORT BY******************************/
+
+/** SortByClauseProperty
+ * @typedef {Column & { direction: "ASC"|"DESC"}} SortByClauseProperty
+ */
+
+/** SortByCallbackModelProp
+ * @typedef {object} SortByCallbackModelProp
+ * @prop {() => SortByClauseProperty} asc
+ * @prop {() => SortByClauseProperty} desc
+ */
+
+/** SortByCallbackModel
+ * @template {AbstractModel} T
+ * @typedef {AugmentModel<T, SortByCallbackModelProp>} SortByCallbackModel
+ */
+
+/*****************************ADAPTER******************************/
+
+/** SerializationQueryHandlerData  
+ * 
+ * Data passed for the scope of the custom adapter to help serialize a query command.
+ * @typedef {object} SerializationQueryHandlerData
+ * @prop {WhereClausePropertyArray=} where
+ * Recursively nested array of objects where each object represents a condition.  
+ * If the element is an array, then that means the condition is nested with the last element from that array.  
+ * If undefined, then no `WHERE` clause was given.
+ * @prop {number=} limit
+ * Number representing the number of records to grab.  
+ * If undefined, then no `LIMIT` clause was given.
+ * @prop {number=} offset
+ * Number representing the number of records to skip before grabbing.  
+ * If undefined, then no `OFFSET` clause was given.
+ * @prop {SortByClauseProperty[]=} order_by
+ * Array of objects where each object represents a column to order by.  
+ * If undefined, then no `ORDER BY` clause was given.
+ * @prop {GroupByClauseProperty[]=} group_by
+ * Array of objects where each object represents a column to group by.  
+ * If undefined, then no `GROUP BY` clause was given.
+ * @prop {SelectClauseProperty[]} select
+ * Array of objects where each object represents a column to select.
+ * @prop {[Omit<Omit<FromClauseProperty, "targetTableKey">, "sourceTableKey">, ...FromClauseProperty[]]} from
+ * Array of objects where each object represents a table to join on.  
+ * The first object will represent the main table the context is connected to. 
+ */
+
+/** SerializationInsertHandlerData  
+ * 
+ * Data passed for the scope of the custom adapter to help serialize an insert command.
+ * @typedef {object} SerializationInsertHandlerData
+ * @prop {string[]} columns
+ * @prop {SQLPrimitive[][]} values
+ */
+
+/** SerializationUpdateHandlerData  
+ * 
+ * Data passed for the scope of the custom adapter to help serialize an update command.
+ * @typedef {object} SerializationUpdateHandlerData
+ * @prop {WhereClausePropertyArray=} where
+ * Recursively nested array of objects where each object represents a condition.  
+ * If the element is an array, then that means the condition is nested with the last element from that array.
+ * @prop {AbstractModel=} updateObject Used in an `explicit transaction`.  
+ * Object representing what columns will be updated from the command.  
+ * If this is undefined, then `objects` should be used.
+ * @prop {AbstractModel[]=} objects Used in an `implicit transaction`.  
+ * Array of objects that represent the table in the context that should be updated from the command.
+ * If this is undefined, then `updateObject` should be used.
+ */
+
+/** SerializationDeleteHandlerData  
+ * 
+ * Data passed for the scope of the custom adapter to help serialize a delete command.
+ * @typedef {object} SerializationDeleteHandlerData
+ * @prop {WhereClausePropertyArray=} where
+ * Recursively nested array of objects where each object represents a condition.  
+ * If the element is an array, then that means the condition is nested with the last element from that array.
+ */
+
+/** SerializationHandlers  
+ * 
+ * Various handlers for the `MyORMAdapter` to handle serialization of `MyORM` built data into appropriate command strings.
+ * @typedef {object} SerializationHandlers
+ * @prop {(data: SerializationQueryHandlerData) => { cmd: string, args: ExecutionArgument[] }} forQuery
+ * Handles serialization of a query command and its arguments so it appropriately works for the given database connector.
+ * @prop {(data: SerializationQueryHandlerData) => { cmd: string, args: ExecutionArgument[] }} forCount
+ * Handles serialization of a query command for `COUNT` and its arguments so it appropriately works for the given database connector.
+ * @prop {(data: SerializationInsertHandlerData) => { cmd: string, args: ExecutionArgument[] }} forInsert
+ * Handles serialization of a insert command and its arguments so it appropriately works for the given database connector.
+ * @prop {(data: SerializationUpdateHandlerData) => { cmd: string, args: ExecutionArgument[] }} forUpdate
+ * Handles serialization of a update command and its arguments so it appropriately works for the given database connector.
+ * @prop {(data: SerializationDeleteHandlerData) => { cmd: string, args: ExecutionArgument[] }} forDelete
+ * Handles serialization of a delete command and its arguments so it appropriately works for the given database connector.
+ * @prop {(table: string) => { cmd: string, args: ExecutionArgument[] }} forDescribe
+ * Handles serialization of a describe command and its arguments so it appropriately works for the given database connector.
+ */
+
+/** ExecutionHandlers  
+ * 
+ * Various handlers for the `MyORMAdapter` to handle execution of a command and the command's corresponding arguments.
+ * @typedef {object} ExecutionHandlers
+ * @prop {(cmd: string, args: ExecutionArgument[]) => any[]} forQuery
+ * Handles execution of a query command, given the command string and respective arguments for the comamnd string.  
+ * This should return an array of objects where each object represents the row returned from the query.
+ * @prop {(cmd: string, args: ExecutionArgument[]) => number} forCount
+ * Handles the execution of a query for `COUNT` command, given the command string and respective arguments for the command string.  
+ * This should return a number representing the total number of rows retrieved from the command.
+ * @prop {(cmd: string, args: ExecutionArgument[]) => number[]} forInsert
+ * Handles execution of an insert command, given the command string and respective arguments for the comamnd string.
+ * This should return an array of numbers, where each number represents a table's primary key's auto incremented number (if applicable)  
+ * This array should be parallel with the array of records that were serialized in the `serialize(...).forInsert()` function.
+ * @prop {(cmd: string, args: ExecutionArgument[]) => number} forUpdate
+ * Handles execution of an update command, given the command string and respective arguments for the comamnd string.
+ * This should return a number representing the total number of rows affected from the command.
+ * @prop {(cmd: string, args: ExecutionArgument[]) => number} forDelete
+ * Handles execution of a delete command, given the command string and respective arguments for the comamnd string.
+ * This should return a number representing the total number of rows affected from the command.
+ * @prop {(cmd: string, args: ExecutionArgument[]) => Set<DescribedSchema>} forDescribe
+ * Handles execution of a describe command, given the command string and respective arguments for the comamnd string.
+ * This should return a Set containing each field as a property,
+ *  where each field points to an object representing the schema of the table described.
+ */
+
+/** AdapterScope  
+ * 
+ * @typedef {object} AdapterScope
+ * @prop {() => Error} MyORMAdapterError
+ * @prop {any} Where
+ */
+
+/** AdapterOptions  
+ * 
+ * Additional options that can be restricted specifically for the adapter's use.
+ * @typedef {object} AdapterOptions
+ * @prop {boolean=} allowTruncation
+ * Allow the user to truncate the table.
+ * @prop {boolean=} allowUpdateAll
+ * Allow the user to update all records in the table.
+ * @prop {boolean=} eventHandling 
+ * Allow the user to attach event handlers to the table.
+ */
+
+/** AdapterSyntax  
+ * 
+ * Tools to assist with the adapter's syntax of how commands should be serialized.
+ * @typedef {object} AdapterSyntax
+ * @prop {(s: string) => string} escapeTable
+ * Escapes a table in the command to protect against SQL injections.
+ * `s` is the table to escape.
+ * @prop {(s: string) => string} escapeColumn
+ * Escapes a column in the command to protect against SQL injections.  
+ * `s` is the column to escape.
+ */
+
+/** MyORMAdapter  
+ * 
+ * 
+ * @template T
+ * @typedef {object} MyORMAdapter
+ * @prop {AdapterOptions} options
+ * @prop {AdapterSyntax} syntax
+ * @prop {(scope: AdapterScope) => ExecutionHandlers} execute
+ * @prop {(scope: AdapterScope) => SerializationHandlers} serialize
+ */
+
+/** InitializeAdapterCallback  
+ * 
+ * 
+ * @template T
+ * Type of the expected argument that needs to be passed into the `adapter()` function that represents the connection to the source.
+ * @callback InitializeAdapterCallback
+ * @param {T} config
+ * @returns {MyORMAdapter<T>}
+ */
+
+
+/** MaybePromise  
+ * 
+ * @template T @typedef {Promise<T> | T} MaybePromise 
  */
 
 /**
- * Essentially a regular object, but only with string keys, used as a general representation of the Table being worked with.
- * @typedef {{[key: string]: any}} AbstractModel
+ * @typedef {{[key: string]: SQLPrimitive|AbstractModel|AbstractModel[]}} AbstractModel
  */
 
 /**
@@ -254,172 +523,6 @@
  * @template {AbstractModel} T 
  * The abstract model to check properties for recursive `AbstractModel`s.
  * @typedef {{[K in keyof T as T[K] extends AbstractModel[]|AbstractModel|undefined ? never : K]: T[K]}} OnlyNonAbstractModels
- */
-
-/**
- * Callback definition for the `fromTable` function to help configure the Table name for an informal foreign relationship between two tables using `.include()`.
- * @template {AbstractModel} TFrom 
- * Model object type that represents the table configuring the informal foreign relationship.
- * @template {AbstractModel|AbstractModel[]} TTo 
- * Model object type that represents the table that is being configured to an informal foreign relationship.
- * @callback RelationshipFrom
- * @param {string} realTableName 
- * The real table name for the foreign table being configured.
- * @returns {RelationshipFromCallbackConfig<TFrom, TTo>} 
- * Chaining functions to further configure the relationship.
- */
-
-/**
- * Functions for chaining after `.fromTable()` to further configure a relationship with its primary and foreign keys.
- * @template {AbstractModel} TFrom 
- * Model object type that represents the table configuring the informal foreign relationship.
- * @template {AbstractModel|AbstractModel[]} TTo 
- * Model object type that represents the table that is being configured to an informal foreign relationship.
- * @typedef {object} RelationshipFromCallbackConfig
- * @prop {RelationshipWithKeys<TFrom, TTo>} withKeys 
- * Configures the entire relationship in one function, taking two arguments, `primaryKey` and `foreignKey`, both for the primary key and foreign key to join on, respectively
- * @prop {RelationshipWith<TFrom, TTo>} withPrimary
- * Configures the primary key to join on in the relationship.
- */
-
-/**
- * Callback definition for the `with` function to help configure the foreign key for the `TFrom` table.
- * @template {AbstractModel} TFrom 
- * Model object type that represents the table configuring the informal foreign relationship.
- * @template {AbstractModel|AbstractModel[]} TTo 
- * Model object type that represents the table that is being configured to an informal foreign relationship.
- * @callback RelationshipWith
- * @param {keyof TFrom} primaryKey 
- * Some column from `TFrom` that represents the primary key to use in this relationship.
- * @returns {RelationshipWithCallbackConfig<TFrom, TTo>} 
- * Chaining function `to` to further configure the relationship.
- */
-
-/**
- * Functions for chaining after `.withPrimary()` to further configure a relationship with its foreign key.
- * @template {AbstractModel} TFrom 
- * Model object type that represents the table configuring the informal foreign relationship.
- * @template {AbstractModel|AbstractModel[]} TTo 
- * Model object type that represents the table that is being configured to an informal foreign relationship.
- * @typedef {object} RelationshipWithCallbackConfig
- * @prop {RelationshipTo<TTo>} withForeign 
- * Configures the foreign key from the referenced object in `TTableModel` to use in this relationship.
- */
-
-/**
- * Callback definition for the `to` function to help configure the foreign key for the `TTo` table.
- * @template {AbstractModel|AbstractModel[]} TTo 
- * Model object type that represents the table that is being configured to an informal foreign relationship.
- * @callback RelationshipTo
- * @param {TTo extends undefined ? never : keyof TTo} foreignKey 
- * Some column from `TFrom` that represents the foreign key to use in this relationship.
- * @returns {AndThatHasCallbacks<TTo extends (infer T extends AbstractModel)[] ? T : TTo>} 
- * Further `andThatHas_` callbacks to configure nested relationships.
- */
-
-/**
- * Configures a relationship's primary and foreign keys with the provided `primaryKey` and `foreignKey` arguments, respectively.
- * @template {AbstractModel} TFrom 
- * Model object type that represents the table configuring the informal foreign relationship.
- * @template {AbstractModel|AbstractModel[]} TTo 
- * Model object type that represents the table that is being configured to an informal foreign relationship.
- * @callback RelationshipWithKeys
- * @param {TFrom extends undefined ? never : keyof TFrom} primaryKey 
- * Some column from `TFrom` that represents the primary key to use in this relationship.
- * @param {TTo extends undefined ? never : keyof TTo} foreignKey 
- * Some column from `TFrom` that represents the foreign key to use in this relationship.
- * @returns {AndThatHasCallbacks<TTo extends (infer T extends AbstractModel)[] ? T : TTo>} 
- * Further `andThatHas_` callbacks to configure nested relationships.
- */
-
-/**
- * Object that contains callbacks for configuring nested relationships with `TTableModel`.
- * @template {AbstractModel|AbstractModel[]} TTableModel 
- * Original `AbstractModel` table that just configured a relationship and may need configuration of cascaded relationships.
- * @typedef {object} AndThatHasCallbacks
- * @prop {(modelCallback: HasOneCallback<TTableModel>) => AndThatHasCallbacks<TTableModel>} andThatHasOne 
- * Further configures another one-to-one relationship with some `AbstractModel` in `TTableModel`.
- * @prop {(modelCallback: HasManyCallback<TTableModel>) => AndThatHasCallbacks<TTableModel>} andThatHasMany 
- * Further configures another one-to-many relationship with some `AbstractModel` in `TTableModel`.
- */
-
-/**
- * Callback used for configuring a one-to-one relationship.
- * @template {AbstractModel} TTableModel
- * @callback HasOneCallback
- * @param {{[K in keyof Required<OnlyAbstractModels<TTableModel>>]: HasOneCallbackConfig<Required<TTableModel>, K>}} model 
- * Model that has `AbstractModel` types to configure a one-to-one relationship with `TTableModel`
- * @returns {void}
- */
-
-/**
- * Callback used for configuring a one-to-many relationship.
- * @template {AbstractModel} TTableModel
- * @callback HasManyCallback
- * @param {{[K in keyof Required<OnlyAbstractModelArrays<TTableModel>>]: HasManyCallbackConfig<Required<TTableModel>, K>}} model 
- * Model that has `AbstractModel[]` types to configure a one-to-many relationship with `TTableModel`
- * @returns {void}
- */
-
-/**
- * Object that contains callbacks for further configuring specific details about a one-to-one relationship.
- * @template {AbstractModel} TTableModel 
- * Table model object that is configuring a one-to-one relationship to.
- * @template {keyof OnlyAbstractModels<TTableModel>} Key 
- * Key of `TTableModel` where the value for `TTableModel[Key]` is of `AbstractModel` to configure the one-to-one relationship with.
- * @typedef {object} HasOneCallbackConfig
- * @prop {RelationshipFrom<TTableModel, OnlyAbstractModels<TTableModel>[Key]>} fromTable 
- * Configures the real table name that this relationship is from.
- * @prop {RelationshipWithKeys<TTableModel, OnlyAbstractModels<TTableModel>[Key]>} withKeys 
- * Configures the primary and foreign keys to use in this relationship.
- * @prop {RelationshipWith<TTableModel, OnlyAbstractModels<TTableModel>[Key]>} withPrimary 
- * Configures the primary key from `TTableModel` to use in this relationship.
- */
-
-/**
- * Object that contains callbacks for further configuring specific details about a one-to-many relationship.
- * @template {AbstractModel} TTableModel 
- * Table model object that is configuring a one-to-many relationship to.
- * @template {keyof OnlyAbstractModelArrays<TTableModel>} Key 
- * Key of `TTableModel` where the value for `TTableModel[Key]` is of `AbstractModel[]` to configure the one-to-many relationship with.
- * @typedef {object} HasManyCallbackConfig
- * @prop {RelationshipFrom<TTableModel, OnlyAbstractModelArrays<TTableModel>[Key]>} fromTable 
- * Configures the real table name that this relationship is from.
- * @prop {RelationshipWithKeys<TTableModel, OnlyAbstractModelArrays<TTableModel>[Key]>} withKeys 
- * Configures the primary and foreign keys to use in this relationship.
- * @prop {RelationshipWith<TTableModel, OnlyAbstractModelArrays<TTableModel>[Key]>} withPrimary 
- * Configures the primary key from `TTableModel` to use in this relationship.
- */
-
-/**
- * Object that has a `.thenInclude` function which will include another relationship from `TTableModel` into the next `MyORMContext` command that is sent.
- * @template {AbstractModel} TTableModel Table model object that possibly table relationships.
- * @typedef {object} ThenIncludeObject
- * @prop {(modelCallback: ThenIncludeCallbackConfig<TTableModel>) => ThenIncludeObject<TTableModel>} thenInclude 
- * Specifies that your next Query will further pull in another specified related table from the last included type from the database.
- * In order for your related record to be properly included, there needs to be a relationship configured using the `.andThatHasOne` or `.andThatHasMany` function.
- */
-
-/**
- * Used in the `.thenInclude` function to properly get the keys of the table model being included.
- * @template {AbstractModel} TTableModel
- * @callback ThenIncludeCallbackConfig
- * @param {{[K in keyof Required<OnlyAbstractModelTypes<TTableModel>>]: ThenIncludeObject<Required<OnlyAbstractModelTypes<TTableModel>>[K]>}} model 
- * Model representing the table that is being included into the query.
- * @returns {void}
- */
-
-/**
- * All of the options available to pass into the "options" argument in the constructor for MySqlTableContext.
- * @typedef {Object} TableContextOptions
- * @prop {boolean=} allowUpdateOnAll 
- * Permit updating to all records in the Table.
- * @prop {boolean=} allowTruncation 
- * Permit truncation of the Table.
- * @prop {boolean=} sortKeys 
- * Sort keys before being inserted. This can possibly prevent any mangling of key/value pairs.
- * @prop {string=} escapeCharStart
- * @prop {string=} escapeCharEnd
  */
 
 /**
@@ -491,130 +594,10 @@
  */
 
 /**
- * Augments the type, `T`, so that all nested keys have some reflection of their parent name. (e.g., { Foo: { Bar: "" } } becomes { Foo: { Foo_Bar: "" } } )
- * @template {AbstractModel} T
- * @template {string} [Pre=``]
- * @typedef {{[K in keyof T]: T[K] extends (infer R extends AbstractModel)[]|undefined 
- *   ? AugmentAllValues<R, `${Pre}${K & string}${typeof import('./util.js').ALIAS_AGGREGATE_SEPARATOR}`> 
- *   : T[K] extends AbstractModel|undefined 
- *     ? AugmentAllValues<T[K], `${Pre}${K & string}${typeof import('./util.js').ALIAS_AGGREGATE_SEPARATOR}`> 
- *     : `${Pre}${K & string}`}} AugmentAllValues
- */
-
-/**
- * Checks if the given string type, `K`, begins with `TStarter`, and if so, returns `K`, otherwise it returns `never`.
- * @template {string|symbol|number} K
- * @template {string} TStarter
- * @typedef {K extends `${TStarter}${infer A}` ? K : never} StartsWith
- */
-
-/**
- * Checks if the given string type, `K`, ends with `TEnder`, and if so, returns `K`, otherwise it returns `never`.
- * @template {string|symbol|number} K
- * @template {string} TEnder
- * @typedef {K extends `${infer A}${TEnder}` ? K : never} EndsWith
- */
-
-/**
- * Checks if the given string type, `K`, contains `TContainer`, and if so, returns `K`, otherwise it returns `never`.
- * @template {string|symbol|number} K
- * @template {string} TContainer
- * @typedef {K extends `${infer A}${TContainer}${infer B}` ? K : never} Contains
- */
-
-/**
- * @template {AbstractModel} T
- * @template {keyof T & string} [TKey=keyof T & string]
- * @typedef {undefined extends T ? never : T[TKey] extends (infer R extends AbstractModel)[]|undefined ? T extends T[TKey] ? never : `${TKey}_${Join<R>}` : T[TKey] extends AbstractModel|undefined ? `${TKey}_${Join<T[TKey]>}` : never} Join
- */
-
-/**
- * Grabs the first element in the String, separated by "_".
- * @template {string|symbol|number} K
- * @typedef {K extends `${infer A}_${infer B}` ? A : K} Car
- */
-
-/**
- * Grabs the remaining elements in the String, separated by "_".
- * @template {string|symbol|number} K
- * @typedef {K extends `${infer B}_${infer A}` ? A : never} Cdr
- */
-
-/**
- * Transforms an object, `T`, with non-object value properties where each property key can be mapped back to `TOriginal` using {@link ReconstructValue<TOriginal, keyof T>}
- * @template {AbstractModel} TOriginal
- * @template {AbstractModel} T
- * @typedef {{[K in keyof T as StartsWith<K, "$">]: number} & ReconstructObject<Partial<TOriginal>, keyof T>} ReconstructAbstractModel
- */
-
-// logic: 
-// if key does not contain "_" 
-//   then return the type of TOriginal[TSerializedKey]
-//   else return object with key the first substring up to the "_" character, as long as it is a key of TOriginal.
-//     if K is a key of TOriginal 
-//       then if TOriginal[K] is an AbstractModel array type,
-//         then recursively call ReconstructObject again with TOriginal being the inferred type from the AbstractModel array and TSerializedKey being the remaining string after the "_" character.
-//         else if TOriginal[K] is an AbstractModel type,
-//           then recursively call ReconstructObject again with new TOriginal being old TOriginal[K] and TSerializedKey being the remaining string after the "_" character.
-//           else TOriginal[K]
-//     else never
-/**
- * Transforms a string or union thereof that resembles some finitely nested properties inside of `TOriginal` model 
- * into its actual representation as shown in `TOriginal`. 
- * @template {AbstractModel} TOriginal
- * @template {string|symbol|number} TSerializedKey
- * @typedef {Contains<TSerializedKey, "_"> extends never 
- *   ? TSerializedKey extends keyof TOriginal 
- *     ? {[K in TSerializedKey]: TOriginal[TSerializedKey]} 
- *     : never
- *   : {[K in Car<TSerializedKey> as K extends keyof TOriginal ? K : never]: K extends keyof TOriginal 
- *     ? TOriginal[K] extends (infer R extends AbstractModel)[]|undefined
- *       ? ReconstructObject<R, Cdr<TSerializedKey>> 
- *       : TOriginal[K] extends AbstractModel|undefined
- *         ? ReconstructObject<Exclude<TOriginal[K], undefined>, Cdr<TSerializedKey>> 
- *         : TOriginal[K]
- *     : never} 
- * } ReconstructObject
- */
-
-/**
- * Model representing grouped models, including aggregates.
- * @template {AbstractModel} TTableModel
- * @typedef {Partial<TTableModel>
- *  & Partial<{ $total: number }>
- *  & Partial<{[K in keyof TTableModel as `$count_${Join<TTableModel, K & string>}`]: number}>
- *  & Partial<{[K in keyof TTableModel as `$avg_${Join<TTableModel, K & string>}`]: number}>
- *  & Partial<{[K in keyof TTableModel as `$max_${Join<TTableModel, K & string>}`]: number}>
- *  & Partial<{[K in keyof TTableModel as `$min_${Join<TTableModel, K & string>}`]: number}>
- *  & Partial<{[K in keyof TTableModel as `$sum_${Join<TTableModel, K & string>}`]: number}>} GroupedColumnsModel
- */
-
-/**
  * Model parameter that is passed into the callback function for `.groupBy`
  * @template {AbstractModel} TTableModel
  * @typedef {AugmentAllValues<TTableModel>} GroupByCallbackModel
  */
-
-/**
- * Object representing the `aggregate` object passed into the `.groupBy` callback function.
- * @typedef {Object} Aggregates
- * @prop {() => "$total"} total Gets the total count of all records from the query.
- * @prop {AggrCountCallback} count Gets the count of distinct rows for that field.
- * @prop {AggrAvgCallback} avg Gets the average amount across all rows for that field.
- * @prop {AggrMaxCallback} max Gets the maximum amount between all rows for that field.
- * @prop {AggrMinCallback} min Gets the minimum amount between all rows for that field.
- * @prop {AggrSumCallback} sum Gets the total sum amount across all rows for that field.
- */
-
-// Aggregated functions return something different than their actual value because the TypeScript return value
-//   is constructed to accurately reflect the real return values
-//   whereas the actual return values are used for the actual command.
-
-/** @typedef {import('./util.js').AggrCountCallback} AggrCountCallback */
-/** @typedef {import('./util.js').AggrAvgCallback} AggrAvgCallback */
-/** @typedef {import('./util.js').AggrMaxCallback} AggrMaxCallback */
-/** @typedef {import('./util.js').AggrMinCallback} AggrMinCallback */
-/** @typedef {import('./util.js').AggrSumCallback} AggrSumCallback */
 
 /**
  * Configuration representing an object storing data for a view's state.
@@ -663,7 +646,7 @@
 /**
  * Makes all keys on `TTableModel` and any keys that are in nested in `TTableModel` into required keys.
  * @template {AbstractModel} TTableModel
- * @typedef {{[K in keyof Required<TTableModel>]: TTableModel[K] extends (infer T extends AbstractModel)[]|undefined ? AllKeysRequired<Required<T[]>> : TTableModel[K] extends AbstractModel|undefined ? AllKeysRequired<Required<Required<TTableModel>[K]>> : TTableModel[K]}} AllKeysRequired
+ * @typedef {{[K in keyof Required<TTableModel>]: TTableModel[K] extends (infer T extends AbstractModel)[]|undefined ? AllKeysRequired<Required<T>> : TTableModel[K] extends AbstractModel|undefined ? AllKeysRequired<Required<TTableModel[K]>> : TTableModel[K]}} AllKeysRequired
  */
 
 /**
