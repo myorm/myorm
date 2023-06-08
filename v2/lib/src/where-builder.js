@@ -46,8 +46,8 @@ export class WhereBuilder {
         this.#current = { chain, property: `${table}.${options.escapeCharStart}${column}${options.escapeCharEnd}` }
         this.#table = table;
         this.#relationships = relationships;
+        this.#negated = chain.endsWith('NOT');
         this._conditions = [];
-        this.#negated = false;
     }
 
     // Public functions
@@ -171,7 +171,29 @@ export class WhereBuilder {
         this.#insert();
         return this.#chain();
     }
+
     // Private functions
+
+    /**
+     * @private
+     * @returns {import('./index.js').WhereClausePropertyArray}
+     */
+    _getConditions() {
+        return this._conditions;
+    }
+
+    /**
+     * @private
+     * @param {keyof TOriginalModel} column
+     * @param {Types.Chains} chain
+     * @returns {this}
+     */
+    _append(column, chain="WHERE") {
+        // @ts-ignore
+        this.#current = { chain, property: `${table}.${options.escapeCharStart}${column}${options.escapeCharEnd}` }
+        this.#negated = chain.endsWith('NOT');
+        return this;
+    }
 
     /**
      * Chains a ConditionConfig

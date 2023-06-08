@@ -4,7 +4,7 @@ import { deepCopy } from "./util.js";
 import { Where, WhereBuilder } from "./where-builder.js";
 
 /**
- * @typedef {{[key: string]: Date|boolean|string|number|bigint|AbstractModel|AbstractModel[]}} AbstractModel
+ * @typedef {{[key: string]: SQLPrimitive|AbstractModel|AbstractModel[]}} AbstractModel
  */
 
 /**
@@ -17,20 +17,21 @@ import { Where, WhereBuilder } from "./where-builder.js";
 
 /**
  * @typedef {object} ContextState
- * @prop {SelectClauseProperty[]=} select
- * @prop {FromClauseProperty[]=} from
+ * @prop {SelectClauseProperty[]} select
+ * @prop {[Omit<Omit<FromClauseProperty, "targetTableKey">, "sourceTableKey">, ...FromClauseProperty[]]} from
  * @prop {GroupByClauseProperty[]=} groupBy
  * @prop {SortByClauseProperty[]=} sortBy
  * @prop {number=} limit
  * @prop {number=} offset
  * @prop {WhereBuilder=} where
  * @prop {boolean=} explicit
+ * @prop {boolean=} negated
  * @prop {Record<string, Set<DescribedSchema>>} relationships
  */
 
 /**
  * @template {AbstractModel} TTableModel
- * @template {AbstractModel} [TAliasModel=TTableModel]
+ * @template {AbstractModel} [TAliasModel=import('./types.js').OnlyNonAbstractModels<TTableModel>]
  */
 export class MyORMContext {
     /** @type {string} */ #table;
@@ -55,6 +56,11 @@ export class MyORMContext {
             ...tableOptions
         };
         this.#state = {
+            select: [],
+            from: [{
+                table,
+                alias: table
+            }],
             relationships: {}
         }
 
@@ -64,10 +70,34 @@ export class MyORMContext {
     }
 
     /**
-     * @param {((model: TTableModel) => string)=} modelCallback
-     * @returns {Promise<TAliasModel[]>}
+     * @template {SelectedColumnsModel<TTableModel>|TAliasModel} [TSelectedColumns=TAliasModel]
+     * **Used internally**  
+     * Assists with reconstructing the final return type.
+     * @param {((model: SpfSelectCallbackModel<TTableModel>) => keyof TSelectedColumns|(keyof TSelectedColumns)[])=} modelCallback
+     * Used to choose which columns to retrieve from the query.  
+     * If nothing is specified, the original aliased representation will be returned.  
+     * If a GROUP BY clause has been specified, an error will be thrown.
+     * @returns {Promise<(TSelectedColumns extends TAliasModel ? TAliasModel : ReconstructAbstractModel<TTableModel, TSelectedColumns>)[]>}
      */
     async select(modelCallback=undefined) {
+        if(modelCallback) {
+            if(this.#state.groupBy) throw Error('Cannot choose columns when a GROUP BY clause is present.');
+            const selects = /** @type {SelectClauseProperty|SelectClauseProperty[]}*/ (/** @type {unknown} */ (modelCallback(this.#newProxyForColumn())));
+            this.#state.select = Array.isArray(selects) ? selects : [selects];
+        }
+
+        const scope = { MyORMAdapterError: () => Error(), Where };
+        const { cmd, args } = this.#adapter.serialize(scope).forQuery({
+            select: this.#state.select,
+            from: this.#state.from,
+            //@ts-ignore `._getConditions` is marked private so the User does not see the function.
+            where: this.#state.where?._getConditions(),
+            group_by: this.#state.groupBy,
+            order_by: this.#state.sortBy,
+            limit: this.#state.limit,
+            offset: this.#state.offset
+        });
+        const results = this.#adapter.execute(scope).forQuery(cmd, args);
         return [];
     }
 
@@ -81,22 +111,6 @@ export class MyORMContext {
 
     async delete(records) {
 
-    }
-
-    /**
-     * Set the context to explicitly update or delete using manually built clauses.
-     */
-    get explicitly() {
-        this.#state.explicit = true;
-        return this;
-    }
-
-    /**
-     * Set the context to implicitly update or delete using primary keys defined on the table.
-     */
-    get implicitly() {
-        this.#state.explicit = false;
-        return this;
     }
 
     async #query() {
@@ -159,9 +173,16 @@ export class MyORMContext {
                     if (this.#isRelationship(p)) {
                         return newProxy(p);
                     }
-                    return Where(p, table, this.#state.relationships, "WHERE");
+                    if(ctx.#state.where) {
+                        //@ts-ignore `._append` is marked private so the User does not see the function.
+                        return ctx.#state.where._append(p, `AND${this.#state.negated ? ' NOT' : ''}`);
+                    }
+                    return Where(p, table, this.#state.relationships, `WHERE${this.#state.negated ? ' NOT' : ''}`);
                 }
             });
+
+            this.#state.where = modelCallback(newProxy());
+            this.#state.negated = false;
         });
     }
 
@@ -174,24 +195,12 @@ export class MyORMContext {
      */
     sortBy(modelCallback) {
         return this.#duplicate(ctx => {
-            const newProxy = (table = this.#table) => new Proxy({}, {
-                get: (t,p,r) => {
-                    if (typeof (p) === 'symbol') throw new MyORMInternalError();
-                    if (this.#isRelationship(p)) {
-                        return newProxy(p);
-                    }
-                    let o = {
-                        table,
-                        column: p,
-                        direction: "ASC",
-                        asc: () => ({ ...o, direction: "ASC" }),
-                        desc: () => ({ ...o, direction: "DESC" })
-                    };
-                    return o;
-                }
-            });
-    
-            const sorts = modelCallback(newProxy());
+            const sorts = modelCallback(this.#newProxyForColumn(undefined, undefined, o => ({
+                ...o,
+                direction: "ASC",
+                asc: () => ({ ...o, direction: "ASC" }),
+                desc: () => ({ ...o, direction: "DESC" })
+            })));
 
             ctx.#state.sortBy = Array.isArray(sorts) ? sorts : [sorts];
         });
@@ -202,24 +211,11 @@ export class MyORMContext {
     /**
      * @template {GroupedColumnsModel<TTableModel>} TGroupedColumns
      * @param {(model: SpfGroupByCallbackModel<TTableModel>, aggregates: Aggregates) => keyof TGroupedColumns|(keyof TGroupedColumns)[]} modelCallback 
-     * @returns {MyORMContext<ReconstructAbstractModel<TTableModel, TGroupedColumns>, ReconstructAbstractModel<TTableModel, TGroupedColumns>>} A new context with the all previously configured clauses and the updated groupings.
+     * @returns {MyORMContext<ReconstructAbstractModel<TTableModel, TGroupedColumns>, ReconstructAbstractModel<TTableModel, TGroupedColumns>>} 
+     * A new context with the all previously configured clauses and the updated groupings.
      */
     groupBy(modelCallback) {
         return this.#duplicate(ctx => {
-            const newProxy = (table = this.#table) => new Proxy({}, {
-                get: (t, p, r) => {
-                    if (typeof(p) === 'symbol') throw new MyORMInternalError(); // @TODO not an internal error, this would be the fault of the User for a reference like `m[Symbol()]`
-                    if (this.#isRelationship(p)) {
-                        return newProxy(p);
-                    }
-                    let o = {
-                        table,
-                        column: p
-                    };
-                    return o;
-                }
-            });
-
             /**
              * 
              * @param {"AVG"|"COUNT"|"MIN"|"MAX"|"SUM"|"TOTAL"} aggr
@@ -227,17 +223,23 @@ export class MyORMContext {
              */
             const getGroupedColProp = (aggr) => {
                 return (col) => {
-                    const [table, column] = col.split('_');
+                    if(col === undefined) throw new MyORMInternalError();
+                    const { table, column, alias } = /** @type {Column} */ (col);
+                    const c = aggr === 'COUNT' 
+                        ? `COUNT(DISTINCT ${column})` 
+                        : aggr === 'TOTAL' 
+                            ? `COUNT(*)` 
+                            : `${aggr}(${column})`;
                     return {
                         table,
-                        column,
-                        alias: col.replace('_', '<|'),
+                        column: c,
+                        alias: alias.replace('<|', '_'),
                         aggregate: aggr
                     }
                 };
             };
 
-            const groups = modelCallback(newProxy(), {
+            const groups = modelCallback(this.#newProxyForColumn(), {
                 avg: getGroupedColProp("AVG"),
                 count: getGroupedColProp("COUNT"),
                 min: getGroupedColProp("MIN"),
@@ -252,14 +254,20 @@ export class MyORMContext {
 
     group = this.groupBy;
 
-    alias() {
+    /**
+     * Specify the columns you would like to select
+     * @template {SelectedColumnsModel<TTableModel>} TSelectedColumns
+     * @param {(model: SpfSelectCallbackModel<TTableModel>) => keyof TSelectedColumns|(keyof TSelectedColumns)[]} modelCallback
+     * @returns {MyORMContext<ReconstructAbstractModel<TTableModel, TSelectedColumns>, ReconstructAbstractModel<TTableModel, TSelectedColumns>>} 
+     * A new context with the all previously configured clauses and the updated groupings.
+     */
+    choose(modelCallback) {
+        if(this.#state.groupBy) throw Error('Cannot choose columns when a GROUP BY clause is present.');
 
-    }
-
-    map = this.alias;
-
-    choose() {
-
+        return this.#duplicate(ctx => {
+            const selects = /** @type {SelectClauseProperty|SelectClauseProperty[]}*/ (/** @type {unknown} */ (modelCallback(this.#newProxyForColumn())));
+            ctx.#state.select = Array.isArray(selects) ? selects : [selects];
+        });
     }
 
     columns = this.choose;
@@ -270,7 +278,7 @@ export class MyORMContext {
      * Use this function to maintain a desired state between each context.
      * @param {(ctx: MyORMContext<any, any>) => void} callback 
      * Callback that is used to further configure state after the duplication has occurred.
-     * @returns {MyORMContext<any, any>}
+     * @returns {any}
      * A new context with the altered state.
      */
     #duplicate(callback) {
@@ -298,18 +306,146 @@ export class MyORMContext {
     }
 
     hasOne(modelCallback) {
+        return this.#duplicate(ctx => {
+            // @TODO use `table` and have a recursively nested relationships Set, so names do not have to be unique.
+            const newProxy = (table=this.#table) => new Proxy(/** @type {any} */({}), {
+                get: (t,p,r) => {
+                    if (typeof(p) === 'symbol') throw new MyORMInternalError(); // @TODO not an internal error, this would be the fault of the User for a reference like `m[Symbol()]`
+                    if (this.#isRelationship(p)) throw Error(`No more than one relationship can exist with the name, "${p}".`);
+                    
+                    this.#describe(p).then(schema => {
+                        this.#state.relationships[p] = schema;
+                    });
 
+                    const andThatHasOne = {
+                        thenInclude: (callback) => {
+                            callback(newProxy(p));
+                            return andThatHasOne;
+                        }
+                    };
+                    return andThatHasOne;
+                }
+            });
+
+            modelCallback(newProxy());
+        });
     }
 
     hasMany(modelCallback) {
 
     }
 
-    include(modelCallback) {
+    /** @template {AbstractModel} T @typedef {import("./types.js").OnlyAbstractModelTypes<T>} OAMT */
 
+    /**
+     * @template {AbstractModel} TTableModel
+     * @template {string|symbol|number} TLastKey
+     * @typedef {{ thenInclude: (model: IncludeCallback<TTableModel, TLastKey>) => ThenIncludeCallback<TTableModel, TLastKey>, z: TLastKey }} ThenIncludeCallback
+     */
+
+    /**
+     * @template {AbstractModel} TTableModel
+     * @template {string|symbol|number} TLastKey
+     * @typedef {(model: {[K in keyof OAMT<TTableModel>]: ThenIncludeCallback<OAMT<TTableModel>[K], K>}) => void} IncludeCallback
+     */
+
+    /**
+     * 
+     * Specify the columns you would like to select
+     * @template {IncludedColumnsModel<TTableModel>} TIncludedColumn
+     * @param {(model: {[K in keyof OAMT<TTableModel>]: ThenIncludeCallback<OAMT<TTableModel>[K], K>}) => { thenInclude: unknown, z: keyof TIncludedColumn }} modelCallback
+     * @returns {MyORMContext<TTableModel, TAliasModel & {[K in keyof TIncludedColumn as K extends keyof TTableModel ? K : never]: Exclude<TTableModel[K], undefined>}>} 
+     * A new context with the all previously configured clauses and the updated groupings.
+     */
+    include(modelCallback) {
+        return this.#duplicate(ctx => {
+            const newProxy = (table=this.#table, prepend="") => new Proxy(/** @type {any} */({}), {
+                get: (t,p,r) => {
+                    if (typeof(p) === 'symbol') throw new MyORMInternalError(); // @TODO not an internal error, this would be the fault of the User for a reference like `m[Symbol()]`
+                    if (!this.#isRelationship(p)) throw Error('');
+                    
+                    const thisKey = Array.from(this.#state.relationships[table]).filter(k => k.isPrimary)[0];
+                    const thatKey = Array.from(this.#state.relationships[p]).filter(k => k.isPrimary)[0];
+                    this.#state.from.push({
+                        table: p,
+                        alias: `__${prepend}${table}_${p}__`,
+                        sourceTableKey: {
+                            table: this.#adapter.syntax.escapeTable(table),
+                            column: this.#adapter.syntax.escapeColumn(thisKey.field),
+                            alias: this.#adapter.syntax.escapeTable(thisKey.alias)
+                        },
+                        targetTableKey: {
+                            table: this.#adapter.syntax.escapeTable(p),
+                            column: this.#adapter.syntax.escapeColumn(thatKey.field),
+                            alias: this.#adapter.syntax.escapeTable(thatKey.alias)
+                        }
+                    });
+
+                    const thenInclude = {
+                        thenInclude: (callback) => {
+                            callback(newProxy(p, `${prepend}${table}_`));
+                            return thenInclude;
+                        }
+                    };
+                    return thenInclude;
+                }
+            });
+
+            modelCallback(newProxy());
+        });
     }
 
     join = this.include;
+
+    /**
+     * @param {string=} table 
+     * @param {string=} prepend 
+     * @param {((o: Column) => any)=} callback
+     * @returns {any}
+     */
+    #newProxyForColumn(table = this.#table, prepend='', callback=(o) => o){
+        if(table === undefined) table = this.#table;
+        if(prepend === undefined) prepend = '';
+        return new Proxy({}, {
+            get: (t, p, r) => {
+                if (typeof(p) === 'symbol') throw new MyORMInternalError(); // @TODO not an internal error, this would be the fault of the User for a reference like `m[Symbol()]`
+                if (this.#isRelationship(p)) {
+                    return this.#newProxyForColumn(p, `${prepend}${table}|>`, callback);
+                }
+
+                return callback({
+                    table: this.#adapter.syntax.escapeTable(table),
+                    column: this.#adapter.syntax.escapeColumn(p),
+                    alias: this.#adapter.syntax.escapeColumn(`${prepend}${p}`)
+                });
+            }
+        });
+    }
+
+    
+    /**
+     * Set the context to explicitly update or delete using manually built clauses.
+     */
+    get explicitly() {
+        this.#state.explicit = true;
+        return this;
+    }
+
+    /**
+     * Set the context to implicitly update or delete using primary keys defined on the table.
+     */
+    get implicitly() {
+        this.#state.explicit = false;
+        return this;
+    }
+
+    /**
+     * Negate the next WHERE clause.
+     */
+    get not() {
+        this.#state.negated = false;
+        return this;
+    }
 }
 
 /** MaybeArray
@@ -332,6 +468,8 @@ export class MyORMContext {
  * The raw name of the table this field belongs to.
  * @prop {string} field
  * The raw name of the field as it is displayed in the database's table.
+ * @prop {string} alias
+ * The given alias for MyORM to use. (this is handled internally.)
  * @prop {boolean} isPrimary
  * True if the column is a primary key.
  * @prop {boolean} isIdentity
@@ -345,10 +483,6 @@ export class MyORMContext {
  * @prop {string} table
  * @prop {string} column
  * @prop {string} alias
- */
-
-/** SelectClauseProperty
- * @typedef {Column} SelectClauseProperty
  */
 
 /** FromClauseProperty
@@ -422,18 +556,34 @@ export class MyORMContext {
 // All types that use the following types should be prepended with 'Spf' for better communication that it is a Superficial type.
 //   the comment describing the type should describe what is actually returned.
 
-/** AugmentAllValues
- * Augments the type, `T`, so that all nested keys have some reflection of their parent name. (e.g., { Foo: { Bar: "" } } becomes { Foo: { Foo_Bar: "" } } )
+/** AugmentAllValues  
+ * Augments the type, `T`, so that all nested properties have string values reflecting their own key and their parent(s).  
+ * (e.g., { Foo: { Bar: "" } } becomes { Foo: { Bar: "Foo_Bar" } })
  * @template {AbstractModel} T
- * @template {string} [Pre=``]
+ * @template {string} [TPre=``]
+ * @template {string} [TSeparator=`_`]
  * @typedef {{[K in keyof T]-?: T[K] extends (infer R extends AbstractModel)[]|undefined 
- *   ? AugmentAllValues<R, `${Pre}${K & string}_`> 
+ *   ? AugmentAllValues<R, `${TPre}${K & string}${TSeparator}`> 
  *   : T[K] extends AbstractModel|undefined 
- *     ? AugmentAllValues<T[K], `${Pre}${K & string}_`> 
- *     : `${Pre}${K & string}`}} AugmentAllValues
+ *     ? AugmentAllValues<T[K], `${TPre}${K & string}${TSeparator}`> 
+ *     : `${TPre}${K & string}`}} AugmentAllValues
  */
 
-/** ReconstructObject
+/** AugmentAllKeys  
+ * Augments the type, `T`, so that all nested properties have keys reflecting their own key and their parent(s).  
+ * (e.g., { Foo: { Bar: "" } } becomes { Foo_Bar: "" })
+ * @template {AbstractModel} T
+ * @template {string} [TPre=``]
+ * @template {string} [TSeparator=`_`]
+ * @typedef {{[K in keyof T as T[K] extends (infer R extends AbstractModel)[]|undefined 
+ *   ? keyof AugmentAllKeys<R, `${TPre}${K & string}${TSeparator}`> 
+ *   : T[K] extends AbstractModel|undefined 
+ *     ? keyof AugmentAllKeys<T[K], `${TPre}${K & string}${TSeparator}`> 
+ *     : `${TPre}${K & string}`]-?: T[K]}} AugmentAllKeys
+ */
+
+/** ReconstructObject  
+ * 
  * Transforms a string or union thereof that resembles some finitely nested properties inside of `TOriginal` model 
  * into its actual representation as shown in `TOriginal`. 
  * @template {AbstractModel} TOriginal
@@ -452,12 +602,30 @@ export class MyORMContext {
  * } ReconstructObject
  */
 
-/** ReconstructAbstractModel
- * Transforms an object, `T`, with non-object value properties where each property key can be mapped back to `TOriginal` using {@link ReconstructValue<TOriginal, keyof T>}
+/** ReconstructAbstractModel  
+ * 
+ * Transforms an object, `T`, with non-object value properties where each property key can be mapped back to `TOriginal` 
+ * using {@link ReconstructValue<TOriginal, keyof T>}
  * @template {AbstractModel} TOriginal
  * @template {AbstractModel} T
  * @typedef {{[K in keyof T as StartsWith<K, "$">]: number} & ReconstructObject<TOriginal, keyof T>} ReconstructAbstractModel
  */
+
+/*****************************INCLUDE******************************/
+
+/** IncludeClauseProperty  
+ * 
+ * Object to carry data tied to various information about a column being selected.
+ * @typedef {FromClauseProperty} IncludeClauseProperty
+ */
+
+/** IncludedColumnsModel  
+ * 
+ * Model representing selected columns.
+ * @template {AbstractModel} TTableModel
+ * @typedef {{[K in keyof import("./types.js").OnlyAbstractModelTypes<TTableModel>]: IncludeClauseProperty}} IncludedColumnsModel
+ */
+
 
 /*****************************WHERE******************************/
 
@@ -469,11 +637,13 @@ export class MyORMContext {
  * @typedef {"="|"<>"|"<"|">"|"<="|">="|"IN"|"LIKE"} WhereCondition 
  */
 
-/** WhereClausePropertyArray
+/** WhereClausePropertyArray  
+ * 
  * @typedef {[WhereClauseProperty, ...(WhereClauseProperty|WhereClausePropertyArray)[]]} WhereClausePropertyArray 
  */
 
-/** WhereClauseProperty
+/** WhereClauseProperty  
+ * 
  * @typedef {object} WhereClauseProperty
  * @prop {string} property
  * @prop {WhereChain} chain
@@ -481,14 +651,41 @@ export class MyORMContext {
  * @prop {WhereCondition} condition
  */
 
+/*****************************SELECT******************************/
+
+/** SelectClauseProperty
+ * Object to carry data tied to various information about a column being selected.
+ * @typedef {Column} SelectClauseProperty
+ */
+
+/** SelectedColumnsModel  
+ * 
+ * Model representing selected columns.
+ * @template {AbstractModel} TTableModel
+ * @typedef {{[K in keyof Partial<TTableModel> as Join<TTableModel, K & string>]: SelectClauseProperty}} SelectedColumnsModel
+ */
+
+/** SpfSelectCallbackModel  
+ * 
+ * Model parameter that is passed into the callback function for `.select`.  
+ * 
+ * __NOTE: This is a superficial type to help augment the AliasModel of the context so Users can expect different results in TypeScript.__  
+ * __Real return value: {@link SelectClauseProperty}__
+ * @template {AbstractModel} TTableModel
+ * @typedef {AugmentAllValues<TTableModel>} SpfSelectCallbackModel
+ */
+
 /*****************************GROUP BY******************************/
 
-/** GroupByClauseProperty
+/** GroupByClauseProperty  
+ * 
+ * Object to carry data tied to various information about a column being grouped by.
  * @typedef {Column & { aggregate?: "AVG"|"COUNT"|"MIN"|"MAX"|"SUM"|"TOTAL" }} GroupByClauseProperty
  */
 
-/** GroupedColumnsModel
- * Model representing grouped models, including aggregates.
+/** GroupedColumnsModel  
+ * 
+ * Model representing grouped columns, including aggregates.
  * @template {AbstractModel} TTableModel
  * @typedef {{[K in keyof Partial<TTableModel>]: GroupByClauseProperty}
  *  & Partial<{ $total: GroupByClauseProperty }>
@@ -563,18 +760,23 @@ export class MyORMContext {
  * @typedef {object} SerializationQueryHandlerData
  * @prop {WhereClausePropertyArray=} where
  * Recursively nested array of objects where each object represents a condition.  
- * If the element is an array, then that means the condition is nested with the last element from that array.
+ * If the element is an array, then that means the condition is nested with the last element from that array.  
+ * If undefined, then no `WHERE` clause was given.
  * @prop {number=} limit
- * Number representing the number of records to grab.
+ * Number representing the number of records to grab.  
+ * If undefined, then no `LIMIT` clause was given.
  * @prop {number=} offset
- * Number representing the number of records to skip before grabbing. 
- * @prop {SortByClauseProperty[]} order_by
- * Array of objects where each object represents a column to order by.
- * @prop {GroupByClauseProperty[]} group_by
- * Array of objects where each object represents a column to group by.
+ * Number representing the number of records to skip before grabbing.  
+ * If undefined, then no `OFFSET` clause was given.
+ * @prop {SortByClauseProperty[]=} order_by
+ * Array of objects where each object represents a column to order by.  
+ * If undefined, then no `ORDER BY` clause was given.
+ * @prop {GroupByClauseProperty[]=} group_by
+ * Array of objects where each object represents a column to group by.  
+ * If undefined, then no `GROUP BY` clause was given.
  * @prop {SelectClauseProperty[]} select
  * Array of objects where each object represents a column to select.
- * @prop {FromClauseProperty[]} from
+ * @prop {[Omit<Omit<FromClauseProperty, "targetTableKey">, "sourceTableKey">, ...FromClauseProperty[]]} from
  * Array of objects where each object represents a table to join on.  
  * The first object will represent the main table the context is connected to. 
  */
@@ -780,19 +982,21 @@ function adapter(config) {
                     let cmd = '';
                     let args = [];
                     let { where, group_by, order_by, limit, offset, select, from } = data;
+                    const [main, ...fromJoins] = from;
                     
                     cmd += `SELECT ${select.map(prop => `${prop.table}.${prop.column} AS ${prop.alias}`).join('\n\t\t,')}`;
                     
                     const limitStr = limit != undefined ? `LIMIT ${limit}` : '';
                     const offsetStr = limit != undefined && offset != undefined ? `OFFSET ${offset}` : '';
-                    cmd += `FROM `;
+                    cmd += `FROM ${main.table} AS ${main.alias}`;
                     // if a limit or offset was specified, and an join is expected, then a nested query should take place of the first table.
                     if(limit && from.length > 1) {
                         let main;
                         [main, ...from] = from;
                         cmd += `(SELECT * FROM ${main.table} ${handleWhere(where, main.table).cmd} ${limitStr} ${offsetStr}) AS ${from[0].alias}`;
-                    } 
-                    cmd += from.map(table => `${table.table} AS ${table.alias} ON ${table.sourceTableKey.table}.${table.sourceTableKey.alias} = ${table.targetTableKey.table}.${table.targetTableKey.alias}`).join('\n\t\tLEFT JOIN');
+                    }
+                    
+                    cmd += fromJoins.map(table => `${table.table} AS ${table.alias} ON ${table.sourceTableKey.table}.${table.sourceTableKey.alias} = ${table.targetTableKey.table}.${table.targetTableKey.alias}`).join('\n\t\tLEFT JOIN');
                     cmd += handleWhere(where);
                     // the inverse happens from above. If a limit or offset was specified but only one table is present, then we will add the strings.
                     if(limit && from.length <= 1) {
@@ -829,7 +1033,7 @@ function adapter(config) {
  * @prop {string} y
  * @prop {boolean} z
  * @prop {Foo=} foo
- * @prop {Bar[]=} bar
+ * @prop {Bar=} bar
  */
 
 /**
@@ -837,6 +1041,7 @@ function adapter(config) {
  * @prop {number} a
  * @prop {string} b
  * @prop {boolean} c
+ * @prop {Bar=} bar
  */
 
 /**
@@ -844,11 +1049,21 @@ function adapter(config) {
  * @prop {number} d
  * @prop {string} e
  * @prop {boolean} f
+ * @prop {Biz=} biz
+ */
+
+/**
+ * @typedef {object} Biz
+ * @prop {number} g
  */
 
 /** @type {MyORMContext<TestModel>} */
 const ctx = new MyORMContext(adapter({ a: "" }), "Blah");
-ctx.sortBy(m => m.foo.a.asc());
-ctx.groupBy((m, aggr) => [aggr.count(m.foo.a), m.x]).select().then(results => {
-    results[0]
+
+ctx.select(m => m.x).then(r => {
+    r[0]
 });
+
+ctx.choose(m => m.x).select().then(r => {
+    r[0]
+})
