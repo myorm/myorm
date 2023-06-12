@@ -3,6 +3,7 @@ import { MyORMInternalError } from "./exceptions.js";
 import { deepCopy } from "./util.js";
 import { Where, WhereBuilder } from "./where-builder.js";
 import * as Types from "./types.js";
+import { createPool } from "mysql2/promise";
 
 /**
  * @typedef {object} MyORMOptions
@@ -15,15 +16,25 @@ import * as Types from "./types.js";
 /**
  * @typedef {object} ContextState
  * @prop {Types.SelectClauseProperty[]} select
+ * Columns to retrieve from the database.
  * @prop {[Omit<Omit<Types.FromClauseProperty, "targetTableKey">, "sourceTableKey">, ...Types.FromClauseProperty[]]} from
+ * Tables to retrieve columns from in the database. (The first time will always be the main table of the context.)
  * @prop {Types.GroupByClauseProperty[]=} groupBy
+ * Columns to group by.
  * @prop {Types.SortByClauseProperty[]=} sortBy
+ * Columns to sort by.
  * @prop {number=} limit
+ * Number of rows to retrieve.
  * @prop {number=} offset
+ * Number of rows to skip before retrieving.
  * @prop {WhereBuilder=} where
+ * Builder representing state of the WHERE clause.
  * @prop {boolean=} explicit
+ * True if the next update/delete operation should be explicit. False otherwise.
  * @prop {boolean=} negated
+ * True if the next `.where()` call should result in a negated condition in the command.
  * @prop {Record<string, Types.Relationship>} relationships
+ * Direct relationships from this table.
  */
 
 /**
@@ -43,7 +54,7 @@ export const EventTypes = {
  */
 export class MyORMContext {
     /** @type {string} */ #table;
-    /** @type {Set<Types.DescribedSchema>} */ #schema;
+    /** @type {{[fieldName: string]: Types.DescribedSchema}} */ #schema;
     /** @type {ContextState} */ #state;
     /** @type {Types.MyORMAdapter<any>} */ #adapter;
     /** @type {MyORMOptions} */ #options;
@@ -73,8 +84,13 @@ export class MyORMContext {
         }
 
         this.#promise = this.#describe(table).then(schema => {
-            this.#schema = schema;
-        })
+            this.#state.select = Object.values(schema).map(f => ({
+                column: this.#adapter.syntax.escapeColumn(f.field),
+                table: this.#adapter.syntax.escapeTable(f.table),
+                alias: this.#adapter.syntax.escapeColumn(f.alias)
+            }))
+            this.#schema = Object.fromEntries(Object.entries(schema).map(([k,v]) => [v.field, v]));
+        });
     }
 
     /**
@@ -88,6 +104,7 @@ export class MyORMContext {
      * @returns {Promise<(TSelectedColumns extends TAliasModel ? TAliasModel : Types.ReconstructAbstractModel<TTableModel, TSelectedColumns>)[]>}
      */
     async select(modelCallback=undefined) {
+        await this.#promise;
         if(modelCallback) {
             if(this.#state.groupBy) throw Error('Cannot choose columns when a GROUP BY clause is present.');
             const selects = /** @type {Types.MaybeArray<Types.SelectClauseProperty>}*/ (/** @type {unknown} */ (modelCallback(this.#newProxyForColumn())));
@@ -105,14 +122,15 @@ export class MyORMContext {
             limit: this.#state.limit,
             offset: this.#state.offset
         });
-        const results = this.#adapter.execute(scope).forQuery(cmd, args);
-        return [];
+        const results = await this.#adapter.execute(scope).forQuery(cmd, args);
+        return this.#serialize(results);
     }
 
     /**
      * @returns {Promise<number>}
      */
     async count() {
+        await this.#promise;
         const scope = { MyORMAdapterError: () => Error(), Where };
         const { cmd, args } = this.#adapter.serialize(scope).forCount({
             select: this.#state.select,
@@ -124,7 +142,7 @@ export class MyORMContext {
             limit: this.#state.limit,
             offset: this.#state.offset
         });
-        const result = this.#adapter.execute(scope).forCount(cmd, args);
+        const result = await this.#adapter.execute(scope).forCount(cmd, args);
         return result;
     }
 
@@ -144,15 +162,21 @@ export class MyORMContext {
      * 
      * @param {string} table 
      * Table to describe. 
-     * @returns {Promise<Set<Types.DescribedSchema>>}
+     * @returns {Promise<{[fieldName: string]: Types.DescribedSchema}>}
     */
     async #describe(table) {
         const { cmd, args } = this.#adapter
             .serialize({ MyORMAdapterError: () => Error(), Where: {} })
             .forDescribe(table);
-        return this.#adapter
+        const schema = await this.#adapter
             .execute({ MyORMAdapterError: () => Error(), Where: {} })
             .forDescribe(cmd, args);
+        
+        for(const k in schema) {
+            schema[k].alias = schema[k].field;
+            schema[k].table = table;
+        }
+        return schema;
     }
 
     /**
@@ -188,17 +212,25 @@ export class MyORMContext {
      */
     where(modelCallback) {
         return this.#duplicate(ctx => {
-            const newProxy = (table = ctx.#table) => new Proxy({}, {
+            const newProxy = (table = ctx.#table, relationships=ctx.#state.relationships, schema=ctx.#schema) => new Proxy({}, {
                 get: (t,p,r) => {
                     if (typeof (p) === 'symbol') throw new MyORMInternalError();
-                    if (ctx.#isRelationship(p, table)) {
-                        return newProxy(p);
+                    if (ctx.#isRelationship(p, relationships)) {
+                        return newProxy(relationships[p].alias, relationships[p].relationships, relationships[p].schema);
                     }
+                    const field = schema[p].field;
                     if(ctx.#state.where) {
                         //@ts-ignore `._append` is marked private so the User does not see the function.
-                        return ctx.#state.where._append(p, `AND${ctx.#state.negated ? ' NOT' : ''}`);
+                        return ctx.#state.where._append(field, `AND${ctx.#state.negated ? ' NOT' : ''}`);
                     }
-                    return ctx.#state.where = Where(p, table, ctx.#state.relationships, `WHERE${ctx.#state.negated ? ' NOT' : ''}`);
+
+                    relationships
+                    return ctx.#state.where = Where(
+                        this.#adapter.syntax.escapeColumn(field), 
+                        this.#adapter.syntax.escapeTable(table), 
+                        ctx.#state.relationships, 
+                        `WHERE${ctx.#state.negated ? ' NOT' : ''}`
+                    );
                 }
             });
 
@@ -216,7 +248,7 @@ export class MyORMContext {
      */
     sortBy(modelCallback) {
         return this.#duplicate(ctx => {
-            const sorts = modelCallback(this.#newProxyForColumn(undefined, undefined, o => ({
+            const sorts = modelCallback(this.#newProxyForColumn(undefined, o => ({
                 ...o,
                 direction: "ASC",
                 asc: () => ({ ...o, direction: "ASC" }),
@@ -245,16 +277,16 @@ export class MyORMContext {
             const getGroupedColProp = (aggr) => {
                 return (col) => {
                     if(col === undefined) throw new MyORMInternalError();
-                    const { table, column, alias } = /** @type {Types.Column} */ (col);
+                    const { table, column, aliasUnescaped } = /** @type {Types.Column} */ (col);
                     const c = aggr === 'COUNT' 
-                        ? `COUNT(DISTINCT ${column})` 
+                        ? `COUNT(DISTINCT ${table}.${column})` 
                         : aggr === 'TOTAL' 
                             ? `COUNT(*)` 
-                            : `${aggr}(${column})`;
+                            : `${aggr}(${table}.${column})`;
                     return {
-                        table,
+                        table: 'AGGREGATE',
                         column: c,
-                        alias: alias.replace('<|', '_'),
+                        alias: `$${aggr.toLowerCase()}_` + aliasUnescaped,
                         aggregate: aggr
                     }
                 };
@@ -269,7 +301,8 @@ export class MyORMContext {
                 total: getGroupedColProp("TOTAL")
             })));
 
-            ctx.#state.groupBy = Array.isArray(groups) ? groups : [groups];
+            ctx.#state.select = Array.isArray(groups) ? groups : [groups];
+            ctx.#state.groupBy = ctx.#state.select.filter(col => !("aggregate" in col));
         });
     }
 
@@ -279,7 +312,7 @@ export class MyORMContext {
      * Specify the columns you would like to select
      * @template {Types.SelectedColumnsModel<TTableModel>} TSelectedColumns
      * @param {(model: Types.SpfSelectCallbackModel<TTableModel>) => Types.MaybeArray<keyof TSelectedColumns>} modelCallback
-     * @returns {MyORMContext<Types.ReconstructAbstractModel<TTableModel, TSelectedColumns>, Types.ReconstructAbstractModel<TTableModel, TSelectedColumns>>} 
+     * @returns {MyORMContext<TTableModel, Types.ReconstructAbstractModel<TTableModel, TSelectedColumns>>} 
      * A new context with the all previously configured clauses and the updated groupings.
      */
     choose(modelCallback) {
@@ -291,78 +324,90 @@ export class MyORMContext {
         });
     }
 
+    /**
+     * 
+     * @param {Types.HasOneCallback<TTableModel>} modelCallback 
+     * @returns {this}
+     */
     hasOne(modelCallback) {
-        /**
-         * @param {string=} table 
-         * @param {"1:1"|"1:n"} type 
-         * @returns 
-         */
-        const newProxy = (table = undefined, type = "1:1") => new Proxy(/** @type {any} */({}), {
-            get: (t, p, r) => {
-                if (typeof (p) === 'symbol') throw new MyORMInternalError(); // @TODO not an internal error, this would be the fault of the User for a reference like `m[Symbol()]`
-                if (this.#isRelationship(p)) throw Error(`No more than one relationship can exist with the name, "${p}".`);
-
-                this.#describe(p).then(schema => {
-                    if (table) {
-                        this.#state.relationships[table] = { schema, type };
-                    } else {
-                        this.#state.relationships[p] = { schema, type };
-                    }
-                });
-
-                const andThat = {
-                    andThatHasOne: (callback) => {
-                        callback(newProxy(p, "1:1"));
-                        return andThat;
-                    },
-                    andThatHasMany: (callback) => {
-                        callback(newProxy(p, "1:n"));
-                        return andThat
-                    }
-                };
-                return andThat;
-            }
-        });
-
-        modelCallback(newProxy());
-
-        return this;
+        return this.#configureRelationship(modelCallback, "1:1");
     }
 
+    /**
+     * 
+     * @param {Types.HasManyCallback<TTableModel>} modelCallback 
+     * @returns {this}
+     */
     hasMany(modelCallback) {
-        /**
-         * @param {string=} table 
-         * @param {"1:1"|"1:n"} type 
-         * @returns 
-         */
-        const newProxy = (table = undefined, type = "1:n") => new Proxy(/** @type {any} */({}), {
-            get: (t, p, r) => {
-                if (typeof (p) === 'symbol') throw new MyORMInternalError(); // @TODO not an internal error, this would be the fault of the User for a reference like `m[Symbol()]`
-                if (this.#isRelationship(p)) throw Error(`No more than one relationship can exist with the name, "${p}".`);
+        return this.#configureRelationship(modelCallback, "1:n");
+    }
 
-                this.#describe(p).then(schema => {
-                    if (table) {
-                        this.#state.relationships[table] = { schema, type };
-                    } else {
-                        this.#state.relationships[p] = { schema, type };
-                    }
-                });
+    /**
+     * @param {Types.HasOneCallback<TTableModel>|Types.HasManyCallback<TTableModel>} callback
+     * @param {"1:1"|"1:n"} type 
+     * @param {string} table
+     * @param {Record<string, Types.Relationship>} relationships
+     * @param {string} prependTable
+     * @param {string} prependColumn
+     */
+    #configureRelationship(callback, type, table=this.#table, relationships=this.#state.relationships, prependTable=`${this.#table}_`, prependColumn='') {
+        const withKeys = (codeTableName, realTableName, primaryKey, foreignKey) => {
+            relationships[codeTableName] = {
+                type,
+                table: realTableName,
+                alias: `__${prependTable}${codeTableName}__`,
+                primary: {
+                    table,
+                    column: primaryKey,
+                    alias: `${prependColumn}${primaryKey}`
+                },
+                foreign: {
+                    table: realTableName,
+                    column: foreignKey,
+                    alias: `${prependColumn}${realTableName}<|${primaryKey}`
+                },
+                schema: {},
+                relationships: {}
+            };
 
-                const andThat = {
-                    andThatHasOne: (callback) => {
-                        callback(newProxy(p, "1:1"));
-                        return andThat;
-                    },
-                    andThatHasMany: (callback) => {
-                        callback(newProxy(p, "1:n"));
-                        return andThat
-                    }
-                };
-                return andThat;
+            this.#promise = this.#promise.then(async () => {
+                const schema = await this.#describe(realTableName);
+                relationships[codeTableName].schema = Object.fromEntries(Object.entries(schema).map(([k,v]) => [v.field, {
+                    ...v,
+                    table: relationships[codeTableName].alias,
+                    alias: `${prependColumn}${codeTableName}<|${v.field}`
+                }]));
+            });
+
+            return {
+                andThatHasOne: (callback) => this.#configureRelationship(callback, "1:1", realTableName, relationships[codeTableName].relationships, `${prependTable}${codeTableName}_`, `${prependColumn}${codeTableName}<|`),
+                andThatHasMany: (callback) => this.#configureRelationship(callback, "1:n", realTableName, relationships[codeTableName].relationships, `${prependTable}${codeTableName}_`, `${prependColumn}${codeTableName}<|`)
+            }
+        };
+
+        const withPrimary = (codeTableName, realTableName, primaryKey) => ({
+            withForeign: (foreignKey) => withKeys(codeTableName, realTableName, primaryKey, foreignKey)
+        });
+        
+        const fromTable = (codeTableName, realTableName) => ({
+            withPrimary: (primaryKey) => withPrimary(codeTableName, realTableName, primaryKey),
+            withKeys: (primaryKey, foreignKey) => withKeys(codeTableName, realTableName, primaryKey, foreignKey)
+        });
+
+        const newProxy = () => new Proxy(/** @type {any} */ ({}), {
+            get: (t,p,r) => {
+                if (typeof(p) === 'symbol') throw new MyORMInternalError(); // @TODO not an internal error, this would be the fault of the User for a reference like `m[Symbol()]`
+                if (p in relationships) throw Error(`A relationship already exists for the table, "${p}"`);
+                
+                return {
+                    fromTable: (realTableName) => fromTable(p, realTableName),
+                    withKeys: (primaryKey, foreignKey) => withKeys(p, p, primaryKey, foreignKey),
+                    withPrimary: (primaryKey) => withPrimary(p, p, primaryKey)
+                }
             }
         });
 
-        modelCallback(newProxy());
+        callback(newProxy());
 
         return this;
     }
@@ -377,31 +422,37 @@ export class MyORMContext {
      */
     include(modelCallback) {
         return this.#duplicate(ctx => {
-            const newProxy = (table=this.#table, prepend="") => new Proxy(/** @type {any} */({}), {
+            const newProxy = (table=ctx.#table, relationships=ctx.#state.relationships) => new Proxy(/** @type {any} */({}), {
                 get: (t,p,r) => {
                     if (typeof(p) === 'symbol') throw new MyORMInternalError(); // @TODO not an internal error, this would be the fault of the User for a reference like `m[Symbol()]`
-                    if (!ctx.#isRelationship(p, table)) throw Error(`The specified table, "${p}", does not have a configured relationship with "${table}".`);
+                    if (!ctx.#isRelationship(p, relationships)) throw Error(`The specified table, "${p}", does not have a configured relationship with "${table}".`);
                     
-                    const thisKey = Array.from(ctx.#state.relationships[table].schema).filter(k => k.isPrimary)[0];
-                    const thatKey = Array.from(ctx.#state.relationships[p].schema).filter(k => k.isPrimary)[0];
-                    this.#state.from.push({
-                        table: p,
-                        alias: `__${prepend}${table}_${p}__`,
+                    const pKey = relationships[p].primary;
+                    const fKey = relationships[p].foreign;
+                    const relatedTableAlias = relationships[p].alias;
+                    ctx.#state.from.push({
+                        table: ctx.#adapter.syntax.escapeTable(relationships[p].table),
+                        alias: ctx.#adapter.syntax.escapeTable(relatedTableAlias),
                         sourceTableKey: {
                             table: ctx.#adapter.syntax.escapeTable(table),
-                            column: ctx.#adapter.syntax.escapeColumn(thisKey.field),
-                            alias: ctx.#adapter.syntax.escapeTable(thisKey.alias)
+                            column: ctx.#adapter.syntax.escapeColumn(pKey.column),
+                            alias: ctx.#adapter.syntax.escapeTable(pKey.alias)
                         },
                         targetTableKey: {
-                            table: ctx.#adapter.syntax.escapeTable(p),
-                            column: ctx.#adapter.syntax.escapeColumn(thatKey.field),
-                            alias: ctx.#adapter.syntax.escapeTable(thatKey.alias)
+                            table: ctx.#adapter.syntax.escapeTable(relatedTableAlias),
+                            column: ctx.#adapter.syntax.escapeColumn(fKey.column),
+                            alias: ctx.#adapter.syntax.escapeColumn(fKey.alias)
                         }
                     });
+                    ctx.#state.select = ctx.#state.select.concat(Object.values(relationships[p].schema).map(col => ({
+                        table: col.table,
+                        column: ctx.#adapter.syntax.escapeColumn(col.field),
+                        alias: col.alias
+                    })));
 
                     const thenInclude = {
                         thenInclude: (callback) => {
-                            callback(newProxy(p, `${prepend}${table}_`));
+                            callback(newProxy(relatedTableAlias, relationships[p].relationships));
                             return thenInclude;
                         }
                     };
@@ -417,24 +468,24 @@ export class MyORMContext {
 
     /**
      * @param {string=} table 
-     * @param {string=} prepend 
      * @param {((o: Types.Column) => any)=} callback
      * @returns {any}
      */
-    #newProxyForColumn(table = this.#table, prepend='', callback=(o) => o){
+    #newProxyForColumn(table = this.#table, callback=(o) => o, relationships=this.#state.relationships, schema=this.#schema){
         if(table === undefined) table = this.#table;
-        if(prepend === undefined) prepend = '';
         return new Proxy({}, {
             get: (t, p, r) => {
                 if (typeof(p) === 'symbol') throw new MyORMInternalError(); // @TODO not an internal error, this would be the fault of the User for a reference like `m[Symbol()]`
-                if (this.#isRelationship(p, table)) {
-                    return this.#newProxyForColumn(p, `${prepend}${table}|>`, callback);
+                if (this.#isRelationship(p, relationships)) {
+                    return this.#newProxyForColumn(relationships[p].alias, callback, relationships[p].relationships, relationships[p].schema);
                 }
-
+                if(!(p in schema)) throw Error(`${p} is not a field in the table, ${table}.`);
+                const { field, alias } = schema[p];
                 return callback({
                     table: this.#adapter.syntax.escapeTable(table),
-                    column: this.#adapter.syntax.escapeColumn(p),
-                    alias: this.#adapter.syntax.escapeColumn(`${prepend}${p}`)
+                    column: this.#adapter.syntax.escapeColumn(field),
+                    alias: this.#adapter.syntax.escapeColumn(alias),
+                    aliasUnescaped: alias
                 });
             }
         });
@@ -466,15 +517,15 @@ export class MyORMContext {
      * Checks to see if `table` is a relationship with the provided table
      * @param {string} table 
      * Table to check to see if it is a relationship.
-     * @param {string=} lastTable
+     * @param {Record<string, Types.Relationship>=} relationships
      * Table to check to see if the argument, `table`, is a relationship with.  
      * If `lastTable` is falsy, or unprovided, then `lastTable` defaults to the main table in this context.
      * @returns {boolean}
      * True if the argument, `lastTable`, with this context has a relationship with `table`, otherwise false.
      */
-    #isRelationship(table, lastTable = undefined) {
-        if (lastTable) {
-            return table in this.#state.relationships[lastTable];
+    #isRelationship(table, relationships = undefined) {
+        if (relationships) {
+            return table in relationships;
         }
         return table in this.#state.relationships;
     }
@@ -494,15 +545,6 @@ export class MyORMContext {
      */
     get implicitly() {
         this.#state.explicit = false;
-        return this;
-    }
-
-    /**
-     * Negate the next WHERE clause.
-     * @returns {this}
-     */
-    get not() {
-        this.#state.negated = false;
         return this;
     }
 
@@ -532,14 +574,121 @@ export class MyORMContext {
     handleWarning(callback, eventType) {
 
     }
+
+    /**
+     * Returns a function to be used in a JavaScript `<Array>.map()` function that recursively maps relating records into a single record.
+     * @param {any[]} records All records returned from a SQL query.
+     * @param {any} record Record that is being worked on (this is handled recursively)
+     * @param {string} prepend String to prepend onto the key for the original record's value.
+     * @returns {(record: any, n?: number) => TTableModel} Function for use in a JavaScript `<Array>.map()` function for use on an array of the records filtered to only uniques by main primary key.
+     */
+    #map(records, record=records[0], prepend="", relationships=this.#state.relationships) {
+        return (r) => {
+            /** @type {any} */
+            const mapping = {};
+            const processedTables = new Set();
+            for(const key in record) {
+                if(key.startsWith("$")) {
+                    mapping[key] = r[key];
+                    continue;
+                }
+                const [table] = key.split('<|');
+                if(processedTables.has(table)) continue;
+                processedTables.add(table);
+                if(table === key) {
+                    if (r[`${prepend}${key}`] != null || prepend == '') {
+                        mapping[key] = r[`${prepend}${key}`];
+                    }
+                } else {
+                    const entries = Object.keys(record).map(k => k.startsWith(`${table}<|`) ? [k.replace(`${table}<|`, ""), {}] : [null, null]).filter(([k]) => k != null);
+                    const map = this.#map(records, Object.fromEntries(entries), `${prepend}${table}<|`, relationships[table].relationships);
+                    if (relationships[table].type === "1:1" || this.#state.groupBy) {
+                        const _r = map(r);
+                        mapping[table] = Object.keys(_r).length <= 0 ? null : _r;
+                    } else {
+                        const pKey = relationships[table].primary.alias;
+                        const fKey = relationships[table].foreign.alias;
+                        mapping[table] = this.#filterForUniqueRelatedRecords(records.filter(_r => r[`${prepend}${pKey}`] === _r[`${prepend}${table}<|${fKey}`]), table, `${prepend}${table}<|`).map(map);
+                    }
+                }
+            }
+    
+            return mapping;
+        }
+    }
+
+    /**
+     * Serializes a given array of records, `records`, into object notation that a User would expect.
+     * @param {any[]} records Records to filter.
+     * @returns {TTableModel[]} Records, serialized into objects that a user would expect.
+     */
+    #serialize(records) {
+        if (records.length <= 0) return records;
+        const map = this.#map(records);
+        // group by is specific where each record returned will be its own result and will not be serialized like normal.
+        if(this.#state.groupBy) {
+            return records.map(map);
+        }
+        return this.#filterForUniqueRelatedRecords(records).map(map);
+    }
+
+    /**
+     * Filters out duplicates of records that have the same primary key.
+     * @param {any[]} records Records to filter.
+     * @param {string=} table Table to get the primary key from. (default: original table name)
+     * @param {string=} prepend String to prepend onto the primary key when referencing a record in the array of records (default: '') 
+     * @returns {any[]} A new array of records, where duplicates by primary key are filtered out. If no primary key is defined, then `records` is returned, untouched.
+     */
+    #filterForUniqueRelatedRecords(records, table=this.#table, prepend='') {
+        let pKey = this.#getPrimaryKey(table);
+        if(records === undefined || pKey === undefined) return records;
+        pKey = prepend + pKey;
+        const uniques = new Set();
+        return records.filter(r => {
+            if(pKey === undefined || !(pKey in r)) return true;
+            if(uniques.has(r[pKey])) {
+                return false;
+            }
+            uniques.add(r[pKey]);
+            return true;
+        });
+    }
+
+    #getPrimaryKey(table, relationships=this.#state.relationships) {
+        let key = undefined;
+        if(table == null || table === this.#table) {
+            for(const k in this.#schema) {
+                const col = this.#schema[k];
+                if(col.isPrimary) {
+                    key = col.field;
+                }
+            }
+        } else {
+            for (const col in relationships) {
+                if(relationships[col].table !== table) {
+                    const key = this.#getPrimaryKey(relationships[col].table, relationships[col].relationships);
+                    if(key) {
+                        break;
+                    }
+                }
+            }
+        }
+        return key;
+    }
 }
 
 /**
+ * Reduces all of the conditions built in `MyORM` to a single clause.
  * @param {Types.WhereClausePropertyArray=} conditions
+ * Conditions to reduce to a clause.
  * @param {string} table
+ * If specified, will only reduce conditions that belong to the specified table. (default: empty string or all conditions)
+ * @param {(n: number) => string} sanitize
+ * Function used to convert values to sanitized strings. (default: (n) => `?`.)
  * @returns {{cmd: string, args: Types.SQLPrimitive[]}}
+ * string and array of SQL primitives to be concatenated onto the full query string and arguments.
  */
-function handleWhere(conditions, table="") {
+export function handleWhere(conditions, table="", sanitize=(n) => `?`) {
     if(!conditions) return { cmd: '', args: [] };
     let args = [];
 
@@ -556,21 +705,27 @@ function handleWhere(conditions, table="") {
     }
 
     // function to reduce each condition to one appropriate clause string.
-    const reduce = (a, b) => {
+    const reduce = (a, b, depth=0) => {
+        const tabs = Array.from(Array(depth + 2).keys()).map(_ => `\t`).join('');
         if(Array.isArray(b)) {
             const [x, ...remainder] = b;
             args.push(x.value);
-            return `${a} ${remainder.reduce(reduce, ` ${x.chain} (${x.property} ${x.condition} ?`) + ')'}`;
+            return `${a} ${remainder.reduce((a,b) => reduce(a,b,depth+1), `${x.chain} (${x.table}.${x.property} ${x.operator} ${sanitize(args.length)}`) + `)\n${tabs}`}`;
         }
         args.push(b.value);
-        return a + ` ${b.chain} ${b.property} ${b.condition} ?`;
+        return a + `${b.chain} ${b.table}.${b.property} ${b.operator} ${sanitize(args.length)}\n${tabs}`;
     };
     
     // map the array, filter out undefineds, then reduce the array to get the clause.
+    /** @type {string} */
     const reduced = conditions.map(mapFilter).filter(x => x !== undefined).reduce(reduce, '');
     return {
         // if a filter took place, then the WHERE statement of the clause may not be there, so we replace.
-        cmd: reduced.startsWith(" WHERE") ? reduced : reduced.startsWith(" AND") ? reduced.replace("AND", "WHERE") : reduced.replace("OR", "WHERE"),
+        cmd: reduced.startsWith("WHERE") 
+            ? reduced.trimEnd()
+            : reduced.startsWith("AND") 
+                ? reduced.replace("AND", "WHERE").trimEnd() 
+                : reduced.replace("OR", "WHERE").trimEnd(),
         // arguments was built inside the reduce function.
         args
     };
@@ -578,35 +733,51 @@ function handleWhere(conditions, table="") {
 
 // MySQL adapter @TODO move to own repo.
 
-/** @type {Types.InitializeAdapterCallback<{ a: string }>} */
+/** @type {Types.InitializeAdapterCallback<import('mysql2/promise.js').Pool>} */
 function adapter(config) {
     return {
-        options: {
-
-        },
+        options: { },
         syntax: {
             escapeColumn: (s) => `\`${s}\``,
             escapeTable: (s) => `\`${s}\``
         },
         execute(scope) {
             return {
-                forQuery(cmd, args) {
+                async forQuery(cmd, args) {
+                    console.log(cmd, args);
+                    const [results] = await config.query(cmd, args);
+                    console.log({results});
+                    return /** @type {any} */ (results);
+                },
+                async forCount(cmd, args) {
+                    console.log(cmd, args);
+                    const [results] = await config.query(cmd, args);
+                    return /** @type {any} */ (results[0].$$count);
+                },
+                async forInsert(cmd, args) {
                     return [];
                 },
-                forCount(cmd, args) {
+                async forUpdate(cmd, args) {
                     return 0;
                 },
-                forInsert(cmd, args) {
-                    return [];
-                },
-                forUpdate(cmd, args) {
+                async forDelete(cmd, args) {
                     return 0;
                 },
-                forDelete(cmd, args) {
-                    return 0;
-                },
-                forDescribe(cmd, args) {
-                    return new Set();
+                async forDescribe(cmd, args) {
+                    const [result] = /** @type {import('mysql2/promise').ResultSetHeader[]} */ (await config.execute(cmd, args));
+                    /** @type {{[fieldName: string]: import("./types.js").DescribedSchema}} */
+                    let set = {}
+                    for(const field in result) {
+                        set[field] = {
+                            field: result[field].Field,
+                            table: "",
+                            alias: "",
+                            isPrimary: result[field].Key === "PRI",
+                            isIdentity: result[field].Extra === "auto_increment",
+                            defaultValue: result[field].Default
+                        };
+                    }
+                    return set;
                 }
             }
         },
@@ -618,18 +789,23 @@ function adapter(config) {
                     let { where, group_by, order_by, limit, offset, select, from } = data;
                     const [main, ...fromJoins] = from;
                     
-                    cmd += `SELECT ${select.map(prop => `${prop.table}.${prop.column} AS ${prop.alias}`).join('\n\t\t,')}`;
+                    cmd += `SELECT ${select.map(prop => `${"aggregate" in prop ? "" : prop.table}${"aggregate" in prop ? "" : "."}${prop.column} AS ${prop.alias}`).join('\n\t\t,')}`;
                     
                     const limitStr = limit != undefined ? `LIMIT ${limit}` : '';
                     const offsetStr = limit != undefined && offset != undefined ? `OFFSET ${offset}` : '';
-                    cmd += `FROM ${main.table} AS ${main.alias}`;
+                    cmd += `\n\tFROM ${main.table} AS ${main.alias}`;
                     // if a limit or offset was specified, and an join is expected, then a nested query should take place of the first table.
                     if(limit && from.length > 1) {
-                        cmd += `(SELECT * FROM ${main.table} ${handleWhere(where, main.table).cmd} ${limitStr} ${offsetStr}) AS ${from[0].alias}`;
+                        const whereInfo = handleWhere(where, main.table);
+                        cmd += `\n\t\tLEFT JOIN (SELECT * FROM ${main.table} ${whereInfo.cmd} ${limitStr} ${offsetStr}) AS ${from[0].alias}`;
+                        args = [...args, ...whereInfo.args];
                     }
                     
-                    cmd += fromJoins.map(table => `${table.table} AS ${table.alias} ON ${table.sourceTableKey.table}.${table.sourceTableKey.alias} = ${table.targetTableKey.table}.${table.targetTableKey.alias}`).join('\n\t\tLEFT JOIN');
-                    cmd += handleWhere(where);
+                    cmd += `\n\t\tLEFT JOIN ` + fromJoins.map(table => `${table.table} AS ${table.alias}\n\t\t\tON ${table.sourceTableKey.table}.${table.sourceTableKey.column} = ${table.targetTableKey.table}.${table.targetTableKey.column}`)
+                        .join('\n\t\tLEFT JOIN ');
+                    const whereInfo = handleWhere(where);
+                    cmd += `\n\t${whereInfo.cmd}`;
+                    args = [...args, ...whereInfo.args];
                     // the inverse happens from above. If a limit or offset was specified but only one table is present, then we will add the strings.
                     if(limit && from.length <= 1) {
                         cmd += limitStr;
@@ -637,11 +813,11 @@ function adapter(config) {
                     }
 
                     if(group_by) {
-                        cmd += 'GROUP BY ' + group_by.map(prop => prop.alias).join(',');
+                        cmd += '\n\tGROUP BY ' + group_by.map(prop => prop.alias).join('\n\t\t,');
                     }
 
                     if(order_by) {
-                        cmd += 'ORDER BY ' + order_by.map(prop => prop.alias).join(',');
+                        cmd += '\n\tORDER BY ' + order_by.map(prop => prop.alias).join('\n\t\t,');
                     }
 
                     return { cmd, args };
@@ -651,31 +827,39 @@ function adapter(config) {
                     let args = [];
                     let { where, group_by, order_by, limit, offset, select, from } = data;
                     const [main, ...fromJoins] = from;
-
+                    
                     cmd += `SELECT COUNT(*) AS $$count`;
-
+                    
                     const limitStr = limit != undefined ? `LIMIT ${limit}` : '';
                     const offsetStr = limit != undefined && offset != undefined ? `OFFSET ${offset}` : '';
-                    cmd += `FROM ${main.table} AS ${main.alias}`;
-                    // if a limit or offset was specified, and an join is expected, then a nested query should take place of the first table.
-                    if (limit && from.length > 1) {
-                        cmd += `(SELECT * FROM ${main.table} ${handleWhere(where, main.table).cmd} ${limitStr} ${offsetStr}) AS ${from[0].alias}`;
+                    // if a limit or offset was specified, and an join is expected, then a nested query should occur in place of the first table.
+                    if(limit && from.length > 1) {
+                        const whereInfo = handleWhere(where, main.table);
+                        cmd += `\n\t\tFROM (SELECT * FROM ${main.table} ${whereInfo.cmd} ${limitStr} ${offsetStr}) AS ${main.alias}`;
+                        args = [...args, ...whereInfo.args];
+                    } else {
+                        cmd += `\n\tFROM ${main.table} AS ${main.alias}`;
                     }
-
-                    cmd += fromJoins.map(table => `${table.table} AS ${table.alias} ON ${table.sourceTableKey.table}.${table.sourceTableKey.alias} = ${table.targetTableKey.table}.${table.targetTableKey.alias}`).join('\n\t\tLEFT JOIN');
-                    cmd += handleWhere(where);
+                    
+                    if(fromJoins && fromJoins.length > 0) {
+                        cmd += `\n\t\tLEFT JOIN ` + fromJoins.map(table => `${table.table} AS ${table.alias}\n\t\t\tON ${table.sourceTableKey.table}.${table.sourceTableKey.column} = ${table.targetTableKey.table}.${table.targetTableKey.column}`)
+                            .join('\n\t\tLEFT JOIN ');
+                    }
+                    const whereInfo = handleWhere(where);
+                    cmd += `\n\t${whereInfo.cmd}`;
+                    args = [...args, ...whereInfo.args];
                     // the inverse happens from above. If a limit or offset was specified but only one table is present, then we will add the strings.
-                    if (limit && from.length <= 1) {
+                    if(limit && from.length <= 1) {
                         cmd += limitStr;
                         cmd += offsetStr;
                     }
 
-                    if (group_by) {
-                        cmd += 'GROUP BY ' + group_by.map(prop => prop.alias).join(',');
+                    if(group_by) {
+                        cmd += '\n\tGROUP BY ' + group_by.map(prop => prop.alias).join('\n\t\t,');
                     }
 
-                    if (order_by) {
-                        cmd += 'ORDER BY ' + order_by.map(prop => prop.alias).join(',');
+                    if(order_by) {
+                        cmd += '\n\tORDER BY ' + order_by.map(prop => prop.alias).join('\n\t\t,');
                     }
 
                     return { cmd, args };
@@ -689,8 +873,8 @@ function adapter(config) {
                 forDelete(data) {
                     return { cmd: "", args: [] };
                 },
-                forDescribe(data) {
-                    return { cmd: "", args: [] };
+                forDescribe(table) {
+                    return { cmd: `DESCRIBE ${table};`, args: [] };
                 }
             }
         }
@@ -727,13 +911,43 @@ function adapter(config) {
  * @prop {number} g
  */
 
-/** @type {MyORMContext<TestModel>} */
-const ctx = new MyORMContext(adapter({ a: "" }), "Blah");
-
-ctx.not.where(m => m.x.gt(10)).select().then(r => {
-    r[0]
+const pool = createPool({
+    database: 'chinook',
+    host: 'localhost',
+    user: 'root',
+    password: 'root',
+    port: 3306
 });
 
-ctx.include(m => m.bar).select().then(r => {
-    r[0].bar
-})
+/**
+ * @typedef {object} Track
+ * @prop {number} TrackId
+ * @prop {string} Name
+ * @prop {number} AlbumId
+ * @prop {import("../../../.github/chinook-setup/chinook-types.js").Album=} Album
+ * @prop {number} MediaTypeId
+ * @prop {import("../../../.github/chinook-setup/chinook-types.js").MediaType=} MediaType
+ * @prop {number} GenreId
+ * @prop {import("../../../.github/chinook-setup/chinook-types.js").Genre=} Genre
+ * @prop {string=} Composer
+ * @prop {import("../../../.github/chinook-setup/chinook-types.js").Artist=} Artist
+ * @prop {number} Milliseconds
+ * @prop {number} Bytes
+ * @prop {number} UnitPrice
+ */
+
+/** @type {MyORMContext<Track>} */
+const ctx = new MyORMContext(adapter(pool), "Track");
+
+ctx.hasOne(m => m.Album.withKeys("AlbumId", "AlbumId")
+        .andThatHasOne(m => m.Artist.withKeys("ArtistId", "ArtistId")))
+    .hasOne(m => m.Genre.withKeys("GenreId", "GenreId"));
+
+ctx.include(m => m.Album
+        .thenInclude(m => m.Artist))
+    .include(m => m.Genre)
+    .choose(m => [m.TrackId, m.Name, m.Genre.Name])
+    .where(m => m.Album.Artist.Name.equals("AC/DC"))
+    .select().then(m => {
+        console.log(JSON.stringify(m, undefined, 2));
+    });

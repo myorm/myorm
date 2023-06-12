@@ -17,8 +17,13 @@
 /** Column
  * @typedef {object} Column
  * @prop {string} table
+ * Table the column belongs to (escaped)
  * @prop {string} column
+ * Column of the table (escaped)
  * @prop {string} alias
+ * Alias of the column (escaped)
+ * @prop {string=} aliasUnescaped
+ * Alias of the column in its raw unescaped form.
  */
 
 /** FromClauseProperty
@@ -105,19 +110,6 @@
  *     : `${TPre}${K & string}`}} AugmentAllValues
  */
 
-/** AugmentAllKeys  
- * Augments the type, `T`, so that all nested properties have keys reflecting their own key and their parent(s).  
- * (e.g., { Foo: { Bar: "" } } becomes { Foo_Bar: "" })
- * @template {AbstractModel} T
- * @template {string} [TPre=``]
- * @template {string} [TSeparator=`_`]
- * @typedef {{[K in keyof T as T[K] extends (infer R extends AbstractModel)[]|undefined 
- *   ? keyof AugmentAllKeys<R, `${TPre}${K & string}${TSeparator}`> 
- *   : T[K] extends AbstractModel|undefined 
- *     ? keyof AugmentAllKeys<T[K], `${TPre}${K & string}${TSeparator}`> 
- *     : `${TPre}${K & string}`]-?: T[K]}} AugmentAllKeys
- */
-
 /** ReconstructObject  
  * 
  * Transforms a string or union thereof that resembles some finitely nested properties inside of `TOriginal` model 
@@ -150,6 +142,7 @@
 /*****************************RELATIONSHIPS******************************/
 
 /** DescribedSchema  
+ * 
  * Object representing the schema of a column in a table.
  * @typedef {object} DescribedSchema
  * @prop {string} table
@@ -168,11 +161,108 @@
 
 /** Relationship  
  * 
- * 
+ * Information regarding a relating table.
  * @typedef {object} Relationship
  * @prop {"1:1"|"1:n"} type
- * @prop {Set<DescribedSchema>} schema
- * @prop {Relationship=} relationship
+ * Type of relationship this has.
+ * @prop {string} table
+ * Actual table name as it appears in the database.
+ * @prop {string} alias
+ * Alias given to this table for command serialization.
+ * @prop {Column} primary
+ * Information on the key pointing to the original table that holds this relationship.
+ * @prop {Column} foreign 
+ * Information on the key pointing to the related table. (this key comes from the same table that is specified by `table`)
+ * @prop {{[fieldName: string]: DescribedSchema}} schema
+ * Various information about the table's columns.
+ * @prop {Record<string, Relationship>=} relationships
+ * Further configured relationships that will be on this table.
+ */
+
+/** From  
+ * 
+ * Object containing the `.fromTable()` function for real table name as it appears in the database.
+ * @template {AbstractModel} TFrom
+ * Relating table that is configuring the relationship.
+ * @template {AbstractModel} TTo
+ * The table that is being configured as a relationship with.
+ * @typedef {{ fromTable: (realTableName: string) => WithKeys<TFrom, TTo> & WithPrimary<TFrom, TTo> }} From
+ */
+
+/** WithPrimary  
+ * 
+ * Object containing the `.withPrimary()` function for specifying the primary key.
+ * @template {AbstractModel} TFrom
+ * Relating table that is configuring the relationship.
+ * @template {AbstractModel} TTo
+ * The table that is being configured as a relationship with.
+ * @typedef {{ withPrimary: (primaryKey: keyof OnlyNonAbstractModels<TFrom>) => { withForeign: (foreignKey: keyof OnlyNonAbstractModels<TTo>) => AndThatHasCallbacks<TTo>}}} WithPrimary
+ */
+
+/** WithKeys  
+ * 
+ * Object containing the `.withKeys()` function for specifying both primary and foreign keys.
+ * @template {AbstractModel} TFrom
+ * Relating table that is configuring the relationship.
+ * @template {AbstractModel} TTo
+ * The table that is being configured as a relationship with.
+ * @typedef {{ withKeys: (primaryKey: keyof OnlyNonAbstractModels<TFrom>, foreignKey: keyof OnlyNonAbstractModels<TTo>) => AndThatHasCallbacks<TTo>}} WithKeys
+ */
+
+/** From_WithPrimary_WithKeys
+ * 
+ * A blend of the 3 types, `From`, `WithPrimary`, `WithKeys`.
+ * @template {AbstractModel} TFrom
+ * Relating table that is configuring the relationship.
+ * @template {AbstractModel} TTo
+ * The table that is being configured as a relationship with.
+ * @typedef {From<TFrom, TTo> & WithPrimary<TFrom, TTo> & WithKeys<TFrom, TTo>} From_WithPrimary_WithKeys
+ */
+
+/** AndThatHasCallbacks  
+ * 
+ * Object containing the functions, `.andThatHasOne()` and `.andThatHasMany()` to further configure deeper relationships.
+ * @template {AbstractModel} TTo
+ * The table that is being configured as a relationship with.
+ * @typedef {{ andThatHasOne: (callback: HasOneCallback<TTo>) => AndThatHasCallbacks<TTo>, andThatHasMany: (callback: HasManyCallback<TTo>) => AndThatHasCallbacks<TTo> }} AndThatHasCallbacks
+ */
+
+/** HasOneCallbackModel  
+ * 
+ * Model that is passed to the callback that the user provides which gives context to the tables to configure relationships with.
+ * @template {AbstractModel} TTableModel
+ * Table model type that is being configured as a relationship.
+ * @typedef {{[K in keyof OnlyAbstractModels<TTableModel>]: From_WithPrimary_WithKeys<TTableModel, OnlyAbstractModels<TTableModel>[K]>}} HasOneCallbackModel
+ */
+
+/** HasOneCallback  
+ * 
+ * The callback template that is used by the user to configure one to one relationships.
+ * @template {AbstractModel} TTableModel
+ * Table model type that is being configured as a relationship.
+ * @callback HasOneCallback
+ * @param {HasOneCallbackModel<TTableModel>} model
+ * The model that provides context for the user to configure their relationships with.
+ * @returns {void}
+ */
+
+/** HasManyCallbackModel  
+ * 
+ * Model that is passed to the callback that the user provides which gives context to the tables to configure relationships with.
+ * @template {AbstractModel} TTableModel
+ * Table model type that is being configured as a relationship.
+ * @typedef {{[K in keyof OnlyAbstractModelArrays<TTableModel>]: From_WithPrimary_WithKeys<TTableModel, OnlyAbstractModelArrays<TTableModel>[K]>}} HasManyCallbackModel
+ */
+
+/** HasManyCallback  
+ * 
+ * The callback template that is used by the user to configure one to many relationships.
+ * @template {AbstractModel} TTableModel
+ * Table model type that is being configured as a relationship.
+ * @callback HasManyCallback
+ * @param {HasManyCallbackModel<TTableModel>} model
+ * The model that provides context for the user to configure their relationships with.
+ * @returns {void}
  */
 
 /** IncludeClauseProperty  
@@ -223,6 +313,7 @@
  * 
  * @typedef {object} WhereClauseProperty
  * @prop {string} property
+ * @prop {string} table
  * @prop {WhereChain} chain
  * @prop {MaybeArray<SQLPrimitive>} value
  * @prop {WhereCondition} condition
@@ -413,26 +504,25 @@
  * 
  * Various handlers for the `MyORMAdapter` to handle execution of a command and the command's corresponding arguments.
  * @typedef {object} ExecutionHandlers
- * @prop {(cmd: string, args: ExecutionArgument[]) => any[]} forQuery
+ * @prop {(cmd: string, args: ExecutionArgument[]) => MaybePromise<any[]>} forQuery
  * Handles execution of a query command, given the command string and respective arguments for the comamnd string.  
  * This should return an array of objects where each object represents the row returned from the query.
- * @prop {(cmd: string, args: ExecutionArgument[]) => number} forCount
+ * @prop {(cmd: string, args: ExecutionArgument[]) => MaybePromise<number>} forCount
  * Handles the execution of a query for `COUNT` command, given the command string and respective arguments for the command string.  
  * This should return a number representing the total number of rows retrieved from the command.
- * @prop {(cmd: string, args: ExecutionArgument[]) => number[]} forInsert
+ * @prop {(cmd: string, args: ExecutionArgument[]) => MaybePromise<number[]>} forInsert
  * Handles execution of an insert command, given the command string and respective arguments for the comamnd string.
  * This should return an array of numbers, where each number represents a table's primary key's auto incremented number (if applicable)  
  * This array should be parallel with the array of records that were serialized in the `serialize(...).forInsert()` function.
- * @prop {(cmd: string, args: ExecutionArgument[]) => number} forUpdate
+ * @prop {(cmd: string, args: ExecutionArgument[]) => MaybePromise<number>} forUpdate
  * Handles execution of an update command, given the command string and respective arguments for the comamnd string.
  * This should return a number representing the total number of rows affected from the command.
- * @prop {(cmd: string, args: ExecutionArgument[]) => number} forDelete
+ * @prop {(cmd: string, args: ExecutionArgument[]) => MaybePromise<number>} forDelete
  * Handles execution of a delete command, given the command string and respective arguments for the comamnd string.
  * This should return a number representing the total number of rows affected from the command.
- * @prop {(cmd: string, args: ExecutionArgument[]) => Set<DescribedSchema>} forDescribe
+ * @prop {(cmd: string, args: ExecutionArgument[]) => MaybePromise<{[fieldName: string]: DescribedSchema}>} forDescribe
  * Handles execution of a describe command, given the command string and respective arguments for the comamnd string.
- * This should return a Set containing each field as a property,
- *  where each field points to an object representing the schema of the table described.
+ * This should return a Set containing {@link DescribedSchema} objects. __NOTE: `table` and `alias` can be left as empty strings, as they are handled internally in MyORM anyways.__
  */
 
 /** AdapterScope  
@@ -494,21 +584,21 @@
  */
 
 /**
- * @typedef {{[key: string]: SQLPrimitive|AbstractModel|AbstractModel[]}} AbstractModel
+ * @typedef {{[key: string]: object|SQLPrimitive|AbstractModel|AbstractModel[]}} AbstractModel
  */
 
 /**
  * Filters out an object model type to only have keys that are valued with `AbstractModel`s.
  * @template {AbstractModel} T 
  * The abstract model to check properties for recursive `AbstractModel`s.
- * @typedef {{[K in keyof Required<T> as T[K] extends (AbstractModel[]|undefined) ? never : T[K] extends AbstractModel|undefined ? K : never]: Required<T[K]>}} OnlyAbstractModels
+ * @typedef {{[K in keyof Required<T> as T[K] extends (AbstractModel[]|undefined) ? never : T[K] extends AbstractModel|undefined ? K : never]-?: T[K] extends (AbstractModel[]|undefined) ? never : T[K] extends AbstractModel|undefined ? Exclude<T[K], undefined> : never}} OnlyAbstractModels
  */
 
 /**
  * Filters out an object model type to only have keys that are valued with `AbstractModel` arrays.
  * @template {AbstractModel} T 
  * The abstract model to check properties for recursive `AbstractModel`s.
- * @typedef {{[K in keyof Required<T> as T[K] extends (AbstractModel[]|undefined) ? K : never]: T[K] extends (infer R extends AbstractModel)[]|undefined ? Required<R> : never}} OnlyAbstractModelArrays
+ * @typedef {{[K in keyof Required<T> as T[K] extends (AbstractModel[]|undefined) ? K : never]-?: T[K] extends (infer R extends AbstractModel)[]|undefined ? Required<R> : never}} OnlyAbstractModelArrays
  */
 
 /**

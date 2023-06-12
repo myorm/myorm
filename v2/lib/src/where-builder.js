@@ -43,7 +43,7 @@ export class WhereBuilder {
      */
     constructor(column, table, relationships, chain="WHERE") {
         // @ts-ignore
-        this.#current = { chain, property: `${table}.${options.escapeCharStart}${column}${options.escapeCharEnd}` }
+        this.#current = { chain, property: column, table }
         this.#table = table;
         this.#relationships = relationships;
         this.#negated = chain.endsWith('NOT');
@@ -56,7 +56,7 @@ export class WhereBuilder {
      * Negate the next condition called.
      * @returns {this}
      */
-    not() {
+    get not() {
         this.#current.chain += " NOT";
         this.#negated = true;
         return this;
@@ -176,7 +176,7 @@ export class WhereBuilder {
 
     /**
      * @private
-     * @returns {import('./index.js').WhereClausePropertyArray}
+     * @returns {import('./types.js').WhereClausePropertyArray}
      */
     _getConditions() {
         return this._conditions;
@@ -190,7 +190,7 @@ export class WhereBuilder {
      */
     _append(column, chain="WHERE") {
         // @ts-ignore
-        this.#current = { chain, property: `${table}.${options.escapeCharStart}${column}${options.escapeCharEnd}` }
+        this.#current = { chain, property: `${table}.${column}` }
         this.#negated = chain.endsWith('NOT');
         return this;
     }
@@ -202,10 +202,10 @@ export class WhereBuilder {
     #chain() {
         return new Proxy({
             and: (modelCallback) => {
-                const newProxy = (table=this.#table) => new Proxy(/** @type {any} */({}), {
+                const newProxy = (table=this.#table, relationships=this.#relationships) => new Proxy(/** @type {any} */({}), {
                     get: (t, p, r) => {
-                        if (p in this.#relationships) {
-                            return newProxy(this.#relationships[p].alias);
+                        if (p in relationships) {
+                            return newProxy(relationships[p].alias, relationships[p].relationships);
                         }
                         return Where(String(p), table, this.#relationships, "AND");
                     }
@@ -216,10 +216,10 @@ export class WhereBuilder {
                 return this.#chain();
             },
             or: (modelCallback) => {
-                const newProxy = (table=this.#table) => new Proxy(/** @type {any} */ ({}), {
+                const newProxy = (table=this.#table, relationships=this.#relationships) => new Proxy(/** @type {any} */ ({}), {
                     get: (t,p,r) => {
-                        if(p in this.#relationships) {
-                            return newProxy(this.#relationships[p].alias);
+                        if (p in relationships) {
+                            return newProxy(relationships[p].alias, relationships[p].relationships);
                         }
                         return Where(String(p), table, this.#relationships, "OR");
                     }
@@ -249,7 +249,8 @@ export class WhereBuilder {
         if ("chain" in this.#current
             && "property" in this.#current
             && "value" in this.#current
-            && "operator" in this.#current) {
+            && "operator" in this.#current
+            && "table" in this.#current) {
             if(this.#current.value == null) {
                 if (this.#current.operator == "=") {
                     this.#current.operator = "IS";
