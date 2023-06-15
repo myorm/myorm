@@ -45,7 +45,6 @@
 	"license": "(MIT OR Apache-2.0)",
 	"type": "module",
 	"devDependencies": {
-		"@myorm/mysql-adapter": "^0.0.1",
 		"@types/node": "^18.11.18",
 		"docdash": "^2.0.1",
 		"dotenv": "^16.0.3",
