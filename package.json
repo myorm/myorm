@@ -7,9 +7,9 @@
 		"url": "https://github.com/myorm/myorm"
 	},
 	"description": "Provides an easy way to interact with ad atabase by creating Contexts connected to a table in your database with only the need of defining your tables as TypeScript types.",
-	"main": "./dist/cjs/contexts.js",
-	"module": "./dist/esm/contexts.js",
-	"types": "./dist/esm/types/contexts.d.ts",
+	"main": "./dist/cjs/index.js",
+	"module": "./dist/esm/index.js",
+	"types": "./dist/esm/types/index.d.ts",
 	"scripts": {
 		"document": "jsdoc ./lib/src/ -t ./node_modules/docdash -c ./jsdoc-conf.json",
 		"clean": "del /S /Q .\\dist",
@@ -48,7 +48,6 @@
 		"@types/node": "^18.11.18",
 		"docdash": "^2.0.1",
 		"dotenv": "^16.0.3",
-		"mysql2": "^3.3.3",
 		"rollup-plugin-dts": "^5.3.0",
 		"typescript": "^4.9.4"
 	},
