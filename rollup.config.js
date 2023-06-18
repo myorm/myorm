@@ -5,7 +5,7 @@ const config = [
   // ...
   {
     // path to your declaration files root
-    input: './dist/cjs/types/contexts.d.ts',
+    input: './dist/cjs/types/index.d.ts',
     output: [{ file: './dist/dts/index.d.ts', format: 'es' }],
     plugins: [dts()],
   },

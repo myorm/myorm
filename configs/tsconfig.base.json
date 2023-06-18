@@ -14,7 +14,7 @@
     "files": [
         "../lib/src/events.js",
         "../lib/src/exceptions.js",
-		"../lib/src/contexts.js",
+		"../lib/src/index.js",
         "../lib/src/types.js",
         "../lib/src/util.js",
         "../lib/src/where-builder.js"
