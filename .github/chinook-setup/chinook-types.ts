@@ -1,3 +1,5 @@
+import { SqlTable } from "../../lib/src";
+
 export interface Album {
     AlbumId: number;
     Title: string;
@@ -109,9 +111,24 @@ export interface Track {
 
 export interface TestTable {
     StringCol: string;
-    NumberCol?: number;
+    IntCol?: number;
     BoolCol?: boolean;
     DateCol?: Date;
     DateTimeCol?: Date;
     BigIntCol?: number;
+}
+
+export interface Message extends SqlTable {
+    Content: string;
+    Type?: number;
+    IsAcknowledged: boolean;
+    DateCreated?: Date;
+    DateModified?: Date;
+    RandomNumber?: bigint;
+}
+
+export interface Triangle extends SqlTable {
+    EdgeA: number;
+    EdgeB: number;
+    EdgeC: number;
 }
