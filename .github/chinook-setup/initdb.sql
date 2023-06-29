@@ -1,26 +1,41 @@
 CREATE DATABASE digital_media_store;
 USE digital_media_store;
 
-CREATE TABLE `TestTable` (
-  `StringCol` varchar(45) DEFAULT NULL,
-  `NumberCol` int DEFAULT NULL,
-  `BoolCol` tinyint DEFAULT NULL,
-  `DateCol` date DEFAULT NULL,
-  `DateTimeCol` datetime DEFAULT NULL,
-  `BigIntCol` bigint DEFAULT NULL
+CREATE TABLE TestTable (
+  StringCol varchar(45) DEFAULT NULL,
+  NumberCol int DEFAULT NULL,
+  BoolCol tinyint DEFAULT NULL,
+  DateCol date DEFAULT NULL,
+  DateTimeCol datetime DEFAULT NULL,
+  BigIntCol bigint DEFAULT NULL
 );
 
-CREATE TABLE `TestTableIdentity` (
-  `Id` int NOT NULL AUTO_INCREMENT,
-  `StringCol` varchar(45) DEFAULT NULL,
-  `NumberCol` int DEFAULT NULL,
-  `BoolCol` tinyint DEFAULT NULL,
-  `DateCol` date DEFAULT NULL,
-  `DateTimeCol` datetime DEFAULT NULL,
-  `BigIntCol` bigint DEFAULT NULL,
-  PRIMARY KEY (`Id`)
+CREATE TABLE TestTableIdentity (
+  Id int NOT NULL IDENTITY(1,1),
+  StringCol varchar(45) DEFAULT NULL,
+  NumberCol int DEFAULT NULL,
+  BoolCol tinyint DEFAULT NULL,
+  DateCol date DEFAULT NULL,
+  DateTimeCol datetime DEFAULT NULL,
+  BigIntCol bigint DEFAULT NULL,
+  PRIMARY KEY (Id)
 );
 
+CREATE TABLE Message (
+	Content VARCHAR(128) NOT NULL DEFAULT 'hello!',
+    Type INT DEFAULT 0,
+    IsAcknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+    DateCreated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    DateModified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE Triangle (
+	Id INT auto_increment,
+	EdgeA DOUBLE,
+    EdgeB DOUBLE,
+    EdgeC DOUBLE AS (SQRT(EdgeA * EdgeA + EdgeB * EdgeB)),
+    PRIMARY KEY (Id)
+);
 
 /*******************************************************************************
    Chinook Database - Version 1.4

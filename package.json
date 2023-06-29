@@ -1,24 +1,24 @@
 {
 	"name": "@myorm/myorm",
-	"version": "0.3.8",
+	"version": "0.4.7",
 	"homepage": "https://github.com/myorm/myorm",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/myorm/myorm"
 	},
-	"description": "Provides an easy way to interact with ad atabase by creating Contexts connected to a table in your database with only the need of defining your tables as TypeScript types.",
-	"main": "./dist/cjs/contexts.js",
-	"module": "./dist/esm/contexts.js",
-	"types": "./dist/esm/types/contexts.d.ts",
+	"description": "Provides an easy way to interact with a database by creating contexts connected to tables in your databases.",
+	"main": "./dist/cjs/index.js",
+	"module": "./dist/esm/index.js",
+	"types": "./dist/esm/types/index.d.ts",
 	"scripts": {
 		"document": "jsdoc ./lib/src/ -t ./node_modules/docdash -c ./jsdoc-conf.json",
 		"clean": "del /S /Q .\\dist",
 		"build": "npm run test > output.txt && npm run clean && npm run build:esm && npm run build:cjs && npm run rollup",
 		"build:esm": "tsc -p ./configs/tsconfig.esm.json",
 		"build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
-        "rollup": "rollup -c",
+		"rollup": "rollup -c",
 		"test": "node ./lib/tests/test.js",
-		"ctest": "node ./lib/tests/test.js -c",
+		"ctest": "node ./lib/tests/test.js -C",
 		"prepack": "npm run build"
 	},
 	"keywords": [
@@ -46,10 +46,13 @@
 	"type": "module",
 	"devDependencies": {
 		"@types/node": "^18.11.18",
+		"biguint-format": "^1.0.2",
 		"docdash": "^2.0.1",
 		"dotenv": "^16.0.3",
+		"random-bigint": "^0.0.1",
 		"rollup-plugin-dts": "^5.3.0",
-		"typescript": "^4.9.4"
+		"typescript": "^4.9.4",
+		"uuid": "^9.0.0"
 	},
 	"files": [
 		"dist/**/*"
@@ -57,12 +60,12 @@
 	"exports": {
 		".": {
 			"import": {
-				"types": "./dist/esm/types/contexts.d.ts",
-				"default": "./dist/esm/contexts.js"
+				"types": "./dist/esm/types/index.d.ts",
+				"default": "./dist/esm/index.js"
 			},
 			"require": {
-				"types": "./dist/cjs/types/contexts.d.ts",
-				"default": "./dist/cjs/contexts.js"
+				"types": "./dist/cjs/types/index.d.ts",
+				"default": "./dist/cjs/index.js"
 			}
 		}
 	}
