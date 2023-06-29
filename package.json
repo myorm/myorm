@@ -1,12 +1,12 @@
 {
 	"name": "@myorm/myorm",
-	"version": "0.4.3",
+	"version": "0.4.7",
 	"homepage": "https://github.com/myorm/myorm",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/myorm/myorm"
 	},
-	"description": "Provides an easy way to interact with ad atabase by creating Contexts connected to a table in your database with only the need of defining your tables as TypeScript types.",
+	"description": "Provides an easy way to interact with a database by creating contexts connected to tables in your databases.",
 	"main": "./dist/cjs/index.js",
 	"module": "./dist/esm/index.js",
 	"types": "./dist/esm/types/index.d.ts",
@@ -60,12 +60,12 @@
 	"exports": {
 		".": {
 			"import": {
-				"types": "./dist/esm/types/contexts.d.ts",
-				"default": "./dist/esm/contexts.js"
+				"types": "./dist/esm/types/index.d.ts",
+				"default": "./dist/esm/index.js"
 			},
 			"require": {
-				"types": "./dist/cjs/types/contexts.d.ts",
-				"default": "./dist/cjs/contexts.js"
+				"types": "./dist/cjs/types/index.d.ts",
+				"default": "./dist/cjs/index.js"
 			}
 		}
 	}
