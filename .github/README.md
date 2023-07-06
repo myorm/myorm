@@ -2,6 +2,8 @@
 
 # MyORM
 
+__DISCLAIMER: Much of this README is outdated, and will be updated as the library gets more tested. The final documentation will be located at https://myorm.dev/__
+
 MyORM is a library dedicated for interacting with a MySQL database by building transactions using an Object Relationship Model (hence the name `myorm`)
 
 # Table of Contents

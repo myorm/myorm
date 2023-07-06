@@ -119,16 +119,15 @@ export interface TestTable {
 }
 
 export interface Message extends SqlTable {
-    Content: string;
+    Content?: string;
     Type?: number;
-    IsAcknowledged: boolean;
+    IsAcknowledged?: boolean;
     DateCreated?: Date;
     DateModified?: Date;
-    RandomNumber?: bigint;
 }
 
 export interface Triangle extends SqlTable {
     EdgeA: number;
     EdgeB: number;
-    EdgeC: number;
+    EdgeC?: number;
 }

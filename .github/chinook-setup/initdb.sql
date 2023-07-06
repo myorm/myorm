@@ -21,6 +21,21 @@ CREATE TABLE TestTableIdentity (
   PRIMARY KEY (Id)
 );
 
+CREATE TABLE Message (
+	Content VARCHAR(128) NOT NULL DEFAULT 'hello!',
+    Type INT DEFAULT 0,
+    IsAcknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+    DateCreated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    DateModified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE Triangle (
+	Id INT auto_increment,
+	EdgeA DOUBLE,
+    EdgeB DOUBLE,
+    EdgeC DOUBLE AS (SQRT(EdgeA * EdgeA + EdgeB * EdgeB)),
+    PRIMARY KEY (Id)
+);
 
 /*******************************************************************************
    Chinook Database - Version 1.4
