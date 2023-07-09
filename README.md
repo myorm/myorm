@@ -309,22 +309,18 @@ Connect `MyORM` to a POSTgres database.
 
 [POSTgres Adapter](https://www.npmjs.com/package/@myorm/postgres-adapter)  
 
+### JSON
+
+Connect `MyORM` to a JavaScript object that mimics a database.  
+
+[POSTgres Adapter](https://www.npmjs.com/package/@myorm/json-adapter)  
+
 ## Plugins and other supported material
 
 Below is a list of supported plugins that can be used with various applications.
 
 ### GraphQL
 
-__work in progress__
-
 Generate Root Query and Mutation types through `MyORM` for instant use in your GraphQL API.
 
-[GraphQL Plugin](https://www.npmjs.com/package/@myorm/graphql-plugin)  
-
-### Lucia-Auth
-
-__work in progress__
-
-Connect [Lucia](https://lucia-auth.com/) to your application using `MyORM` and the custom adapter for `MyORM`.
-
-[Lucia Auth Adapter](https://www.npmjs.com/package/@myorm/lucia-auth-plugin)  
+[GraphQL Plugin](https://www.npmjs.com/package/@myorm/graphql)  
