@@ -1,3 +1,4 @@
+DROP DATABASE digital_media_store;
 CREATE DATABASE digital_media_store;
 USE digital_media_store;
 
@@ -11,7 +12,7 @@ CREATE TABLE TestTable (
 );
 
 CREATE TABLE TestTableIdentity (
-  Id int NOT NULL IDENTITY(1,1),
+  Id int NOT NULL AUTO_INCREMENT,
   StringCol varchar(45) DEFAULT NULL,
   NumberCol int DEFAULT NULL,
   BoolCol tinyint DEFAULT NULL,
@@ -35,6 +36,28 @@ CREATE TABLE Triangle (
     EdgeB DOUBLE,
     EdgeC DOUBLE AS (SQRT(EdgeA * EdgeA + EdgeB * EdgeB)),
     PRIMARY KEY (Id)
+);
+
+CREATE TABLE User (
+	Id INT AUTO_INCREMENT,
+    FirstName VARCHAR(32) NOT NULL,
+    LastName VARCHAR(32) NOT NULL,
+    PRIMARY KEY (Id)
+);
+
+CREATE TABLE Role (
+	Id INT AUTO_INCREMENT,
+    Title VARCHAR(32) NOT NULL,
+    Description VARCHAR(512) NOT NULL,
+    PRIMARY KEY (Id)
+);
+
+CREATE TABLE UserRole (
+	UserId INT NOT NULL,
+    RoleId INT NOT NULL,
+    PRIMARY KEY (UserId, RoleId),
+    FOREIGN KEY (UserId) REFERENCES User (Id),
+    FOREIGN KEY (RoleId) REFERENCES Role (Id)
 );
 
 /*******************************************************************************
