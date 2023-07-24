@@ -67,6 +67,36 @@
 				"types": "./dist/cjs/types/index.d.ts",
 				"default": "./dist/cjs/index.js"
 			}
-		}
+		},
+        "./schema": {
+            "import": {
+                "types": "./dist/esm/types/schema.d.ts",
+                "default": "./dist/esm/schema.js"
+            },
+            "require": {
+                "types": "./dist/cjs/types/schema.d.ts",
+                "default": "./dist/cjs/schema.js"
+            }
+        },
+        "./adapter": {
+            "import": {
+                "types": "./dist/esm/types/adapter.d.ts",
+                "default": "./dist/esm/adapter.js"
+            },
+            "require": {
+                "types": "./dist/cjs/types/adapter.d.ts",
+                "default": "./dist/cjs/adapter.js"
+            }
+        },
+        "./types": {
+            "import": {
+                "types": "./dist/esm/types/types.d.ts",
+                "default": "./dist/esm/types.js"
+            },
+            "require": {
+                "types": "./dist/cjs/types/types.d.ts",
+                "default": "./dist/cjs/types.js"
+            }
+        }
 	}
 }
