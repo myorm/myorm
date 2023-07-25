@@ -22,44 +22,6 @@ CREATE TABLE TestTableIdentity (
   PRIMARY KEY (Id)
 );
 
-CREATE TABLE Message (
-	Content VARCHAR(128) NOT NULL DEFAULT 'hello!',
-    Type INT DEFAULT 0,
-    IsAcknowledged BOOLEAN NOT NULL DEFAULT FALSE,
-    DateCreated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    DateModified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-
-CREATE TABLE Triangle (
-	Id INT auto_increment,
-	EdgeA DOUBLE,
-    EdgeB DOUBLE,
-    EdgeC DOUBLE AS (SQRT(EdgeA * EdgeA + EdgeB * EdgeB)),
-    PRIMARY KEY (Id)
-);
-
-CREATE TABLE User (
-	Id INT AUTO_INCREMENT,
-    FirstName VARCHAR(32) NOT NULL,
-    LastName VARCHAR(32) NOT NULL,
-    PRIMARY KEY (Id)
-);
-
-CREATE TABLE Role (
-	Id INT AUTO_INCREMENT,
-    Title VARCHAR(32) NOT NULL,
-    Description VARCHAR(512) NOT NULL,
-    PRIMARY KEY (Id)
-);
-
-CREATE TABLE UserRole (
-	UserId INT NOT NULL,
-    RoleId INT NOT NULL,
-    PRIMARY KEY (UserId, RoleId),
-    FOREIGN KEY (UserId) REFERENCES User (Id),
-    FOREIGN KEY (RoleId) REFERENCES Role (Id)
-);
-
 /*******************************************************************************
    Chinook Database - Version 1.4
    Script: Chinook_PostgreSql.sql
